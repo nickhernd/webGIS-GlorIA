@@ -1,24 +1,23 @@
 {
   "name": "webgis-gloria-frontend",
-  "version": "1.0.0",
   "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "serve": "vite preview"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.6.7",
     "mapbox-gl": "^3.1.2",
-    "material-icons": "^1.13.12",
-    "vue": "^3.4.15",
+    "vue": "^3.3.11",
     "vue-router": "^4.2.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^1.7.1",
+    "@vitejs/plugin-vue": "^4.5.2",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
-    "vite": "^0.10.3"
+    "vite": "^5.0.10"
   }
 }

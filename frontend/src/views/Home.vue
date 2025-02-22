@@ -1,74 +1,54 @@
 <template>
-  <div class="flex flex-col h-screen bg-gray-900">
-    <!-- Header/Navbar -->
-    <header class="bg-gray-800 text-white px-4 py-2 flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <h1 class="text-xl font-bold">MyOcean PRO</h1>
-        <span class="text-sm text-gray-400">Monitorización de Piscifactorías CV</span>
+  <div class="flex h-screen">
+    <!-- Sidebar -->
+    <div class="w-64 bg-gray-800 p-4">
+      <div class="text-white">
+        <h2 class="text-xl font-bold mb-4">Add layer...</h2>
+        <div class="bg-white rounded p-4 text-gray-900">
+          <h3 class="text-blue-600 font-medium">Sea water potential temperature</h3>
+          <p class="text-gray-600 text-sm">thetao</p>
+          <p class="text-gray-600 text-sm">02/03/2025 • -0.5m • Global daily</p>
+          <div class="mt-4">
+            <div class="h-2 bg-gradient-to-r from-purple-500 via-red-500 to-yellow-500 rounded"></div>
+            <div class="flex justify-between text-xs mt-1">
+              <span>0°C</span>
+              <span>30°C</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-4">
-        <span class="text-sm">{{ currentDate }}</span>
-      </div>
-    </header>
+    </div>
 
-    <!-- Main Content -->
-    <div class="flex flex-1">
-      <Sidebar 
-        @select="selectPiscifactoría"
-        @date-range-update="updateDateRange"
-        @filter-update="applyFilter"
-        :selectedPiscifactoría="selectedPiscifactoría"
-      />
-      <div class="flex-1 flex flex-col">
-        <MapComponent 
-          :piscifactoría="selectedPiscifactoría"
-          :dateRange="dateRange"
-          :filter="filter"
-        />
-        <StatsComponent 
-          :piscifactoría="selectedPiscifactoría"
-          :dateRange="dateRange"
-          :filter="filter"
-        />
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col">
+      <!-- Map area -->
+      <div class="flex-1 bg-gray-700">
+        <div class="h-full relative">
+          <!-- Map placeholder -->
+          <div class="absolute top-4 right-4 flex gap-2">
+            <button class="bg-white px-3 py-1 rounded shadow hover:bg-gray-100">Points</button>
+            <button class="bg-white px-3 py-1 rounded shadow hover:bg-gray-100">Lines</button>
+            <button class="bg-white px-3 py-1 rounded shadow hover:bg-gray-100">Areas</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="h-24 bg-gray-800 p-4">
+        <div class="flex items-center gap-2 text-white">
+          <button class="p-2 hover:bg-gray-700 rounded">▶</button>
+          <div class="flex-1 h-2 bg-gray-700 rounded-full relative">
+            <div class="absolute w-4 h-4 bg-blue-500 rounded-full top-1/2 -translate-y-1/2" style="left: 50%"></div>
+          </div>
+          <span>2025</span>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import Sidebar from '../components/Sidebar.vue'
-import MapComponent from '../components/MapComponent.vue'
-import StatsComponent from '../components/StatsComponent.vue'
-
 export default {
-  name: 'HomeView',
-  components: {
-    Sidebar,
-    MapComponent,
-    StatsComponent
-  },
-  data() {
-    return {
-      selectedPiscifactoría: null,
-      dateRange: null,
-      filter: {},
-      currentDate: new Date().toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })
-    }
-  },
-  methods: {
-    selectPiscifactoría(piscifactoría) {
-      this.selectedPiscifactoría = piscifactoría
-    },
-    updateDateRange(range) {
-      this.dateRange = range
-    },
-    applyFilter(filter) {
-      this.filter = filter
-    }
-  }
+  name: 'HomeView'
 }
 </script>

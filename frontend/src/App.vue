@@ -1,5 +1,7 @@
 <template>
-  <router-view></router-view>
+  <div class="min-h-screen bg-gray-900">
+    <router-view></router-view>
+  </div>
 </template>
 
 <script>
@@ -9,8 +11,6 @@ export default {
 </script>
 
 <style>
-@import 'material-icons/iconfont/material-icons.css';
-
 body {
   margin: 0;
   padding: 0;
@@ -20,7 +20,5 @@ body {
   font-family: Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  width: 100vw;
-  height: 100vh;
 }
 </style>
