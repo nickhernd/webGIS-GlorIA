@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-900">
+  <div class="app-container">
     <router-view></router-view>
   </div>
 </template>
@@ -7,18 +7,19 @@
 <script>
 export default {
   name: 'App'
-}
+};
 </script>
 
 <style>
-body {
+html, body {
   margin: 0;
   padding: 0;
+  height: 100%;
+  width: 100%;
 }
 
-#app {
-  font-family: Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.app-container {
+  height: 100vh;
+  width: 100vw;
 }
 </style>

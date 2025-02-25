@@ -41,7 +41,6 @@
             type="date" 
             class="w-full p-2 rounded bg-gray-700 text-white border border-gray-600"
             v-model="selectedDate"
-            @change="updateDate"
           />
         </div>
         
@@ -54,7 +53,6 @@
             <select 
               class="w-full p-2 rounded bg-gray-700 text-white border border-gray-600"
               v-model="selectedDepth"
-              @change="updateDepth"
             >
               <option value="-0.5">-0.5m (Superficie)</option>
               <option value="-10">-10m</option>
@@ -77,62 +75,39 @@
       <div class="flex-1 flex flex-col relative">
         <!-- Componente de mapa -->
         <div class="flex-1 relative">
-          <div id="map" class="absolute inset-0 bg-gray-700"></div>
+          <MapComponent 
+            :selectedLayer="selectedLayer"
+            :selectedDate="selectedDate"
+            :selectedDepth="selectedDepth"
+          />
           
-          <!-- Controles superiores -->
-          <div class="absolute top-4 right-4 flex gap-2 z-10">
-            <button 
-              v-for="view in mapViews" 
-              :key="view.id"
-              class="bg-white px-3 py-1 rounded shadow hover:bg-gray-100"
-              @click="changeMapView(view.id)"
-            >
-              {{ view.name }}
-            </button>
-          </div>
-
-          <!-- Leyenda -->
-          <div class="absolute bottom-4 left-4 bg-white p-2 rounded shadow z-10" v-if="selectedLayer">
-            <h3 class="text-sm font-medium">{{ selectedLayer.title }}</h3>
-            <div class="h-2 w-40 mt-1 bg-gradient-to-r" :class="getGradientClass(selectedLayer.id)"></div>
-            <div class="flex justify-between text-xs mt-1">
-              <span>{{ selectedLayer.min }}{{ selectedLayer.unit }}</span>
-              <span>{{ selectedLayer.max }}{{ selectedLayer.unit }}</span>
-            </div>
-          </div>
-
-          <!-- Indicador de carga -->
-          <div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20" v-if="isLoading">
-            <div class="text-white">Cargando datos...</div>
-          </div>
-        </div>
-        
-        <!-- Predicción de riesgo -->
-        <div class="absolute top-20 right-4 bg-white p-3 rounded shadow z-10 max-w-xs">
-          <h3 class="text-lg font-bold mb-2">Predicción de Riesgo</h3>
-          
-          <div v-if="predictions.length > 0" class="space-y-3">
-            <div 
-              v-for="pred in predictions" 
-              :key="pred.id"
-              class="p-2 rounded border"
-              :class="getRiskClass(pred.risk)"
-            >
-              <div class="font-medium">{{ pred.name }}</div>
-              <div class="flex justify-between text-sm">
-                <span>Nivel de riesgo:</span>
-                <span class="font-bold">{{ getRiskLabel(pred.risk) }}</span>
-              </div>
-              <div class="mt-2 text-xs">
-                <div>Temp. agua: {{ pred.factors.waterTemperature.toFixed(1) }}°C</div>
-                <div>Vel. corriente: {{ pred.factors.currentSpeed.toFixed(1) }} m/s</div>
-                <div>Vel. viento: {{ pred.factors.windSpeed.toFixed(1) }} km/h</div>
+          <!-- Predicción de riesgo -->
+          <div class="absolute top-20 right-4 bg-white p-3 rounded shadow z-10 max-w-xs">
+            <h3 class="text-lg font-bold mb-2">Predicción de Riesgo</h3>
+            
+            <div v-if="predictions.length > 0" class="space-y-3">
+              <div 
+                v-for="pred in predictions" 
+                :key="pred.id"
+                class="p-2 rounded border"
+                :class="getRiskClass(pred.risk)"
+              >
+                <div class="font-medium">{{ pred.name }}</div>
+                <div class="flex justify-between text-sm">
+                  <span>Nivel de riesgo:</span>
+                  <span class="font-bold">{{ getRiskLabel(pred.risk) }}</span>
+                </div>
+                <div class="mt-2 text-xs">
+                  <div>Temp. agua: {{ pred.factors.waterTemperature.toFixed(1) }}°C</div>
+                  <div>Vel. corriente: {{ pred.factors.currentSpeed.toFixed(1) }} m/s</div>
+                  <div>Vel. viento: {{ pred.factors.windSpeed.toFixed(1) }} km/h</div>
+                </div>
               </div>
             </div>
-          </div>
-          
-          <div v-else class="text-gray-500">
-            No hay predicciones disponibles
+            
+            <div v-else class="text-gray-500">
+              No hay predicciones disponibles
+            </div>
           </div>
         </div>
         
@@ -175,15 +150,15 @@
 </template>
 
 <script>
-import 'mapbox-gl/dist/mapbox-gl.css';
-import mapboxgl from 'mapbox-gl';
+import MapComponent from '../components/MapComponent.vue';
 
 export default {
   name: 'HomeView',
+  components: {
+    MapComponent
+  },
   data() {
     return {
-      map: null,
-      isLoading: false,
       selectedLayer: null,
       selectedDate: '2025-03-02',
       selectedDepth: -0.5,
@@ -192,11 +167,6 @@ export default {
       isPlaying: false,
       playbackInterval: null,
       isDragging: false,
-      mapViews: [
-        { id: 'valencia', name: 'Valencia' },
-        { id: 'mediterraneo', name: 'Mediterráneo' },
-        { id: 'global', name: 'Global' }
-      ],
       availableLayers: [
         {
           id: 'temperature',
@@ -281,265 +251,14 @@ export default {
     }
   },
   mounted() {
-    this.initMap();
-    
     // Seleccionar la primera capa por defecto
     if (this.availableLayers.length > 0) {
       this.selectLayer(this.availableLayers[0]);
     }
   },
   methods: {
-    initMap() {
-      mapboxgl.accessToken = 'pk.eyJ1IjoibmFhaC1naXMiLCJhIjoiY2xoaHZreDFrMDJnajNjbjFseTlyaHU3diJ9.yH0W2mBAjU6GRTZlv6bVYA';
-      
-      this.map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: [0.15, 39.5], // Costa de la Comunidad Valenciana
-        zoom: 7
-      });
-
-      this.map.addControl(new mapboxgl.NavigationControl());
-      
-      this.map.on('load', () => {
-        this.addFishFarms();
-        if (this.selectedLayer) {
-          this.addLayerData();
-        }
-      });
-    },
-    
     selectLayer(layer) {
       this.selectedLayer = layer;
-      if (this.map && this.map.loaded()) {
-        this.addLayerData();
-      }
-    },
-    
-    updateDate() {
-      // Actualizar fecha y datos
-      this.addLayerData();
-      // Actualizar posición en la línea de tiempo basado en la fecha
-      this.updateTimelineFromDate();
-    },
-    
-    updateDepth() {
-      // Actualizar datos con la nueva profundidad
-      this.addLayerData();
-    },
-    
-    addLayerData() {
-      if (!this.selectedLayer || !this.map) return;
-      
-      this.isLoading = true;
-      
-      // Simular carga de datos reales (en producción, esto vendría de una API)
-      setTimeout(() => {
-        // Eliminar capas existentes si hay
-        if (this.map.getLayer('ocean-data-layer')) {
-          this.map.removeLayer('ocean-data-layer');
-        }
-        if (this.map.getSource('ocean-data')) {
-          this.map.removeSource('ocean-data');
-        }
-        
-        // Crear datos simulados
-        const features = [];
-        const layerId = this.selectedLayer.id;
-        
-        // Generar puntos en el área de la Comunidad Valenciana
-        for (let lon = -0.5; lon <= 1.0; lon += 0.1) {
-          for (let lat = 38.0; lat <= 40.5; lat += 0.1) {
-            let value;
-            
-            if (layerId === 'temperature') {
-              // Valores de temperatura que varían según la localización
-              value = 15 + Math.sin(lat * 10) * 3 + Math.cos(lon * 5) * 2;
-            } else if (layerId === 'currents') {
-              // Velocidad de corrientes
-              value = 0.2 + Math.sin(lat * 8) * 0.15 + Math.cos(lon * 6) * 0.1;
-            } else {
-              // Nutrientes u otros
-              value = 1 + Math.sin(lat * 12) * 0.8 + Math.cos(lon * 7) * 0.5;
-            }
-            
-            features.push({
-              type: 'Feature',
-              geometry: {
-                type: 'Point',
-                coordinates: [lon, lat]
-              },
-              properties: {
-                value: value
-              }
-            });
-          }
-        }
-        
-        // Añadir fuente
-        this.map.addSource('ocean-data', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: features
-          }
-        });
-        
-        // Visualización según el tipo de capa
-        if (layerId === 'temperature') {
-          this.addTemperatureLayer();
-        } else if (layerId === 'currents') {
-          this.addCurrentsLayer();
-        } else {
-          this.addNutrientsLayer();
-        }
-        
-        this.isLoading = false;
-      }, 500);
-    },
-    
-    addTemperatureLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'heatmap',
-        source: 'ocean-data',
-        paint: {
-          'heatmap-weight': ['get', 'value'],
-          'heatmap-intensity': 1,
-          'heatmap-color': [
-            'interpolate',
-            ['linear'],
-            ['heatmap-density'],
-            0, 'rgba(0,0,255,0)',
-            0.2, 'rgb(0,0,255)',
-            0.4, 'rgb(0,255,255)',
-            0.6, 'rgb(0,255,0)',
-            0.8, 'rgb(255,255,0)',
-            1, 'rgb(255,0,0)'
-          ],
-          'heatmap-radius': 8,
-          'heatmap-opacity': 0.8
-        }
-      });
-    },
-    
-    addCurrentsLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'circle',
-        source: 'ocean-data',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'value'],
-            0, '#0571b0',
-            0.5, '#92c5de',
-            1.0, '#f7f7f7',
-            1.5, '#f4a582'
-          ],
-          'circle-opacity': 0.8
-        }
-      });
-    },
-    
-    addNutrientsLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'circle',
-        source: 'ocean-data',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'value'],
-            0, '#eff3ff',
-            1, '#bdd7e7',
-            2, '#6baed6',
-            3, '#3182bd',
-            5, '#08519c'
-          ],
-          'circle-opacity': 0.8
-        }
-      });
-    },
-    
-    addFishFarms() {
-      // Añadir ubicaciones de piscifactorías al mapa
-      const features = this.predictions.map(farm => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [farm.lon, farm.lat]
-        },
-        properties: {
-          id: farm.id,
-          name: farm.name,
-          risk: farm.risk
-        }
-      }));
-      
-      this.map.addSource('fishfarms', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: features
-        }
-      });
-      
-      // Añadir capa con colores según nivel de riesgo
-      this.map.addLayer({
-        id: 'fishfarms-layer',
-        type: 'circle',
-        source: 'fishfarms',
-        paint: {
-          'circle-radius': 10,
-          'circle-color': [
-            'match',
-            ['get', 'risk'],
-            'low', '#3CB043',
-            'medium', '#FFA500',
-            'high', '#FF0000',
-            '#FFFFFF'
-          ],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#FFFFFF'
-        }
-      });
-      
-      // Añadir popups para mostrar información al hacer clic
-      this.map.on('click', 'fishfarms-layer', (e) => {
-        const props = e.features[0].properties;
-        
-        new mapboxgl.Popup()
-          .setLngLat(e.lngLat)
-          .setHTML(`
-            <h3 class="font-bold">${props.name}</h3>
-            <p>Nivel de riesgo: ${this.getRiskLabel(props.risk)}</p>
-          `)
-          .addTo(this.map);
-      });
-      
-      // Cambiar cursor al pasar sobre las piscifactorías
-      this.map.on('mouseenter', 'fishfarms-layer', () => {
-        this.map.getCanvas().style.cursor = 'pointer';
-      });
-      
-      this.map.on('mouseleave', 'fishfarms-layer', () => {
-        this.map.getCanvas().style.cursor = '';
-      });
-    },
-    
-    changeMapView(viewId) {
-      if (viewId === 'valencia') {
-        this.map.flyTo({ center: [0.15, 39.5], zoom: 7 });
-      } else if (viewId === 'mediterraneo') {
-        this.map.flyTo({ center: [10, 38], zoom: 4 });
-      } else if (viewId === 'global') {
-        this.map.flyTo({ center: [0, 30], zoom: 2 });
-      }
     },
     
     getGradientClass(layerId) {
@@ -590,7 +309,6 @@ export default {
           
           this.selectedDate = date.toISOString().split('T')[0];
           this.updateTimelineFromDate();
-          this.addLayerData();
         }, 1000); // Actualizar cada segundo
       } else {
         clearInterval(this.playbackInterval);
@@ -657,9 +375,6 @@ export default {
       const date = new Date(year, month, 15);
       this.selectedDate = date.toISOString().split('T')[0];
       this.timelineYear = year.toString();
-      
-      // Actualizar la visualización
-      this.addLayerData();
     },
     
     stopDragging() {
@@ -680,11 +395,5 @@ export default {
       document.removeEventListener('mouseup', this.stopDragging);
     }
   }
-}
+};
 </script>
-
-<style scoped>
-.mapboxgl-canvas {
-  outline: none;
-}
-</style>

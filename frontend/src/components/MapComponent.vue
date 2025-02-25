@@ -1,5 +1,6 @@
 <template>
   <div class="relative w-full h-full">
+    <!-- El contenedor del mapa -->
     <div id="map" class="absolute inset-0"></div>
     
     <!-- Controles superiores -->
@@ -16,35 +17,37 @@
 
     <!-- Leyenda -->
     <div class="absolute bottom-4 left-4 bg-white p-2 rounded shadow z-10" v-if="currentLayer">
-      <h3 class="text-sm font-medium">{{ currentLayer.variable_name }}</h3>
-      <div class="h-2 w-40 mt-1" :style="getGradientStyle(currentLayer.variable_name)"></div>
+      <h3 class="text-sm font-medium">{{ currentLayer.title }}</h3>
+      <div class="h-2 w-40 mt-1 bg-gradient-to-r" :class="getGradientClass(currentLayer.id)"></div>
       <div class="flex justify-between text-xs mt-1">
-        <span>{{ currentLayerMinValue }} {{ currentLayer.unit }}</span>
-        <span>{{ currentLayerMaxValue }} {{ currentLayer.unit }}</span>
+        <span>{{ currentLayer.min }}{{ currentLayer.unit }}</span>
+        <span>{{ currentLayer.max }}{{ currentLayer.unit }}</span>
       </div>
-    </div>
-
-    <!-- Indicador de carga -->
-    <div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20" v-if="isLoading">
-      <div class="text-white">Cargando datos...</div>
     </div>
   </div>
 </template>
 
 <script>
-import 'mapbox-gl/dist/mapbox-gl.css';
-import mapboxgl from 'mapbox-gl';
-import CopertnicusService from '../services/CopertnicusService';
+// Importaciones de OpenLayers
+import 'ol/ol.css';
+import { Map, View } from 'ol';
+import TileLayer from 'ol/layer/Tile';
+import OSM from 'ol/source/OSM';
+import XYZ from 'ol/source/XYZ';
+import { fromLonLat } from 'ol/proj';
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import Feature from 'ol/Feature';
+import Point from 'ol/geom/Point';
+import { Style, Circle, Fill, Stroke, Text } from 'ol/style';
+import { GeoJSON } from 'ol/format';
+import Heatmap from 'ol/layer/Heatmap';
 
 export default {
   name: 'MapComponent',
   props: {
-    selectedDatasetId: {
-      type: Number,
-      default: null
-    },
-    selectedVariableId: {
-      type: Number,
+    selectedLayer: {
+      type: Object,
       default: null
     },
     selectedDate: {
@@ -60,36 +63,32 @@ export default {
     return {
       map: null,
       currentLayer: null,
-      currentLayerMinValue: 0,
-      currentLayerMaxValue: 30,
+      currentView: 'valencia',
       isLoading: false,
       mapViews: [
         { id: 'valencia', name: 'Valencia' },
         { id: 'mediterraneo', name: 'Mediterráneo' },
         { id: 'global', name: 'Global' }
-      ]
+      ],
+      baseLayers: {},
+      dataLayers: {}
     };
   },
   watch: {
-    async selectedDatasetId() {
-      if (this.selectedDatasetId && this.selectedVariableId && this.map) {
-        await this.loadLayerData();
-      }
+    selectedLayer: {
+      handler(newLayer) {
+        if (newLayer) {
+          this.currentLayer = newLayer;
+          this.updateDataLayer();
+        }
+      },
+      immediate: true
     },
-    async selectedVariableId() {
-      if (this.selectedDatasetId && this.selectedVariableId && this.map) {
-        await this.loadLayerData();
-      }
+    selectedDate() {
+      this.updateDataLayer();
     },
-    async selectedDate() {
-      if (this.selectedDatasetId && this.selectedVariableId && this.map) {
-        await this.loadLayerData();
-      }
-    },
-    async selectedDepth() {
-      if (this.selectedDatasetId && this.selectedVariableId && this.map) {
-        await this.loadLayerData();
-      }
+    selectedDepth() {
+      this.updateDataLayer();
     }
   },
   mounted() {
@@ -97,238 +96,298 @@ export default {
   },
   methods: {
     initMap() {
-      mapboxgl.accessToken = 'pk.eyJ1IjoibmFhaC1naXMiLCJhIjoiY2xoaHZreDFrMDJnajNjbjFseTlyaHU3diJ9.yH0W2mBAjU6GRTZlv6bVYA';
+      console.log('Inicializando mapa con OpenLayers');
       
-      this.map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: [0.15, 39.5], // Costa de la Comunidad Valenciana
-        zoom: 7
+      // Crear capa base de OpenStreetMap
+      const osmLayer = new TileLayer({
+        source: new OSM(),
+        visible: true,
+        title: 'OSM'
       });
-
-      this.map.addControl(new mapboxgl.NavigationControl());
       
-      this.map.on('load', async () => {
-        // Cargar datasets disponibles y seleccionar el primero por defecto
-        try {
-          const datasets = await CopertnicusService.getDatasets();
-          if (datasets.length > 0) {
-            const firstDataset = datasets[0];
-            const variables = await CopertnicusService.getVariables(firstDataset.id);
+      // Crear capa base con estilo oscuro para océanos
+      const darkLayer = new TileLayer({
+        source: new XYZ({
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+          attributions: 'Tiles © <a href="https://services.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Reference/MapServer">ArcGIS</a>'
+        }),
+        visible: true,
+        title: 'Dark Ocean'
+      });
+      
+      // Inicializar el mapa
+      this.map = new Map({
+        target: 'map',
+        layers: [darkLayer],
+        view: new View({
+          center: fromLonLat([0.15, 39.5]), // Comunidad Valenciana
+          zoom: 7
+        }),
+        controls: []
+      });
+      
+      // Almacenar referencias a las capas base
+      this.baseLayers = {
+        osm: osmLayer,
+        dark: darkLayer
+      };
+      
+      // Inicializar capas de datos vacías
+      this.dataLayers = {
+        temperature: this.createEmptyVectorLayer('temperature'),
+        currents: this.createEmptyVectorLayer('currents'),
+        nutrients: this.createEmptyVectorLayer('nutrients')
+      };
+      
+      // Añadir todas las capas de datos (inicialmente vacías)
+      Object.values(this.dataLayers).forEach(layer => {
+        this.map.addLayer(layer);
+      });
+      
+      // Añadir capa de piscifactorías
+      this.addFishFarms();
+      
+      console.log('Mapa inicializado');
+    },
+    
+    createEmptyVectorLayer(id) {
+      return new VectorLayer({
+        source: new VectorSource(),
+        visible: false,
+        title: id
+      });
+    },
+    
+    updateDataLayer() {
+      if (!this.currentLayer || !this.map) return;
+      
+      // Ocultar todas las capas de datos
+      Object.values(this.dataLayers).forEach(layer => {
+        layer.setVisible(false);
+      });
+      
+      this.isLoading = true;
+      console.log(`Actualizando capa: ${this.currentLayer.id}`);
+      
+      // Simular carga de datos (esto se reemplazará con datos reales de tu API)
+      setTimeout(() => {
+        // Crear datos de ejemplo
+        const data = this.generateExampleData(this.currentLayer.id);
+        
+        // Obtener la capa correspondiente
+        const layer = this.dataLayers[this.currentLayer.id];
+        
+        if (layer) {
+          // Actualizar la fuente de datos
+          const source = new VectorSource({
+            features: data
+          });
+          
+          if (this.currentLayer.id === 'temperature') {
+            // Para temperatura, usar capa de heatmap
+            const heatmapLayer = new Heatmap({
+              source: source,
+              blur: 15,
+              radius: 10,
+              opacity: 0.8,
+              gradient: ['#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000']
+            });
             
-            if (variables.length > 0) {
-              this.currentLayer = variables[0];
-              this.$emit('dataset-selected', firstDataset.id);
-              this.$emit('variable-selected', variables[0].id);
-              
-              await this.loadLayerData();
+            // Reemplazar la capa existente
+            const index = this.map.getLayers().getArray().indexOf(layer);
+            this.map.getLayers().removeAt(index);
+            this.map.getLayers().insertAt(index, heatmapLayer);
+            this.dataLayers.temperature = heatmapLayer;
+            heatmapLayer.setVisible(true);
+          } else {
+            // Para otras capas, actualizar la fuente del VectorLayer
+            layer.setSource(source);
+            layer.setVisible(true);
+            
+            // Configurar estilo según el tipo de capa
+            if (this.currentLayer.id === 'currents') {
+              layer.setStyle(this.getCurrentStyle());
+            } else if (this.currentLayer.id === 'nutrients') {
+              layer.setStyle(this.getNutrientStyle());
             }
           }
-        } catch (error) {
-          console.error('Error al cargar datos iniciales:', error);
         }
-      });
+        
+        this.isLoading = false;
+      }, 500);
     },
     
-    async loadLayerData() {
-      try {
-        this.isLoading = true;
-        
-        // Obtener información de la variable seleccionada
-        const variables = await CopertnicusService.getVariables(this.selectedDatasetId);
-        this.currentLayer = variables.find(v => v.id === this.selectedVariableId);
-        
-        if (!this.currentLayer) {
-          console.error(`Variable no encontrada: ${this.selectedVariableId}`);
-          this.isLoading = false;
-          return;
-        }
-        
-        // Obtener el área visible del mapa para filtrar datos
-        const bounds = this.map.getBounds();
-        
-        // Obtener datos filtrados
-        const geojsonData = await CopertnicusService.getMarineData(
-          this.selectedDatasetId,
-          this.selectedVariableId,
-          {
-            startDate: this.selectedDate,
-            endDate: this.selectedDate,
-            minLon: bounds._sw.lng,
-            maxLon: bounds._ne.lng,
-            minLat: bounds._sw.lat,
-            maxLat: bounds._ne.lat,
-            depth: this.selectedDepth
+    generateExampleData(layerId) {
+      const features = [];
+      
+      // Generar puntos en el área de la Comunidad Valenciana
+      for (let lon = -0.5; lon <= 1.0; lon += 0.1) {
+        for (let lat = 38.0; lat <= 40.5; lat += 0.1) {
+          let value;
+          
+          if (layerId === 'temperature') {
+            // Valores de temperatura que varían según la localización
+            value = 15 + Math.sin(lat * 10) * 3 + Math.cos(lon * 5) * 2;
+          } else if (layerId === 'currents') {
+            // Velocidad de corrientes
+            value = 0.2 + Math.sin(lat * 8) * 0.15 + Math.cos(lon * 6) * 0.1;
+          } else {
+            // Nutrientes u otros
+            value = 1 + Math.sin(lat * 12) * 0.8 + Math.cos(lon * 7) * 0.5;
           }
-        );
-        
-        // Calcular rango de valores para la leyenda
-        if (geojsonData.features.length > 0) {
-          const values = geojsonData.features.map(f => f.properties.valor);
-          this.currentLayerMinValue = Math.min(...values);
-          this.currentLayerMaxValue = Math.max(...values);
+          
+          const feature = new Feature({
+            geometry: new Point(fromLonLat([lon, lat])),
+            value: value
+          });
+          
+          features.push(feature);
         }
+      }
+      
+      return features;
+    },
+    
+    getCurrentStyle() {
+      return (feature) => {
+        const value = feature.get('value');
         
-        // Eliminar capas/fuentes existentes si existen
-        if (this.map.getLayer('ocean-data-layer')) {
-          this.map.removeLayer('ocean-data-layer');
-        }
-        if (this.map.getSource('ocean-data')) {
-          this.map.removeSource('ocean-data');
-        }
+        // Escala de colores para corrientes
+        let color;
+        if (value < 0.3) color = '#0571b0';
+        else if (value < 0.6) color = '#92c5de';
+        else if (value < 0.9) color = '#f7f7f7';
+        else color = '#f4a582';
         
-        // Añadir nueva fuente y capa
-        this.map.addSource('ocean-data', {
-          type: 'geojson',
-          data: geojsonData
+        return new Style({
+          image: new Circle({
+            radius: 4,
+            fill: new Fill({ color: color }),
+            stroke: new Stroke({ color: 'rgba(0,0,0,0.2)', width: 1 })
+          })
+        });
+      };
+    },
+    
+    getNutrientStyle() {
+      return (feature) => {
+        const value = feature.get('value');
+        
+        // Escala de colores para nutrientes
+        let color;
+        if (value < 1) color = '#eff3ff';
+        else if (value < 2) color = '#bdd7e7';
+        else if (value < 3) color = '#6baed6';
+        else if (value < 4) color = '#3182bd';
+        else color = '#08519c';
+        
+        return new Style({
+          image: new Circle({
+            radius: 4,
+            fill: new Fill({ color: color }),
+            stroke: new Stroke({ color: 'rgba(0,0,0,0.2)', width: 1 })
+          })
+        });
+      };
+    },
+    
+    addFishFarms() {
+      // Datos de ejemplo de piscifactorías
+      const farms = [
+        { id: 1, name: 'Piscifactoría Sagunto', lat: 39.6766, lon: -0.2026, risk: 'low' },
+        { id: 2, name: 'Piscifactoría Burriana', lat: 39.8573, lon: 0.0522, risk: 'medium' },
+        { id: 3, name: 'Piscifactoría Calpe', lat: 38.6333, lon: 0.0714, risk: 'high' }
+      ];
+      
+      // Crear features para las piscifactorías
+      const features = farms.map(farm => {
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([farm.lon, farm.lat])),
+          id: farm.id,
+          name: farm.name,
+          risk: farm.risk
         });
         
-        // Visualización según el tipo de variable
-        const variableName = this.currentLayer.variable_name.toLowerCase();
-        
-        if (variableName.includes('temp') || variableName === 'thetao') {
-          this.addTemperatureLayer();
-        } else if (variableName.includes('vel') || variableName === 'uo' || variableName === 'vo') {
-          this.addCurrentsLayer();
-        } else if (variableName.includes('nutrient') || variableName === 'no3') {
-          this.addNutrientsLayer();
-        } else {
-          this.addGenericLayer();
-        }
-        
-        this.isLoading = false;
-      } catch (error) {
-        console.error('Error al cargar datos de la capa:', error);
-        this.isLoading = false;
-      }
-    },
-    
-    addTemperatureLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'heatmap',
-        source: 'ocean-data',
-        paint: {
-          'heatmap-weight': [
-            'interpolate',
-            ['linear'],
-            ['get', 'valor'],
-            this.currentLayerMinValue, 0,
-            this.currentLayerMaxValue, 1
-          ],
-          'heatmap-intensity': 1,
-          'heatmap-color': [
-            'interpolate',
-            ['linear'],
-            ['heatmap-density'],
-            0, 'rgba(0,0,255,0)',
-            0.2, 'rgb(0,0,255)',
-            0.4, 'rgb(0,255,255)',
-            0.6, 'rgb(0,255,0)',
-            0.8, 'rgb(255,255,0)',
-            1, 'rgb(255,0,0)'
-          ],
-          'heatmap-radius': 8,
-          'heatmap-opacity': 0.8
+        return feature;
+      });
+      
+      // Crear capa de piscifactorías
+      const farmLayer = new VectorLayer({
+        source: new VectorSource({
+          features: features
+        }),
+        style: (feature) => {
+          const risk = feature.get('risk');
+          const name = feature.get('name');
+          
+          // Colores según nivel de riesgo
+          let color;
+          if (risk === 'low') color = '#3CB043';
+          else if (risk === 'medium') color = '#FFA500';
+          else if (risk === 'high') color = '#FF0000';
+          else color = '#FFFFFF';
+          
+          return new Style({
+            image: new Circle({
+              radius: 8,
+              fill: new Fill({ color: color }),
+              stroke: new Stroke({ color: '#FFFFFF', width: 2 })
+            }),
+            text: new Text({
+              text: name,
+              offsetY: -15,
+              fill: new Fill({ color: '#FFFFFF' }),
+              stroke: new Stroke({ color: '#000000', width: 2 })
+            })
+          });
         }
       });
-    },
-    
-    addCurrentsLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'circle',
-        source: 'ocean-data',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'valor'],
-            this.currentLayerMinValue, '#0571b0',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) / 3, '#92c5de',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) * 2 / 3, '#f7f7f7',
-            this.currentLayerMaxValue, '#f4a582'
-          ],
-          'circle-opacity': 0.8
-        }
-      });
-    },
-    
-    addNutrientsLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'circle',
-        source: 'ocean-data',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'valor'],
-            this.currentLayerMinValue, '#eff3ff',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) / 3, '#bdd7e7',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) * 2 / 3, '#6baed6',
-            this.currentLayerMaxValue, '#08519c'
-          ],
-          'circle-opacity': 0.8
-        }
-      });
-    },
-    
-    addGenericLayer() {
-      this.map.addLayer({
-        id: 'ocean-data-layer',
-        type: 'circle',
-        source: 'ocean-data',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'valor'],
-            this.currentLayerMinValue, '#edf8e9',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) / 3, '#bae4b3',
-            (this.currentLayerMinValue + this.currentLayerMaxValue) * 2 / 3, '#74c476',
-            this.currentLayerMaxValue, '#238b45'
-          ],
-          'circle-opacity': 0.8
-        }
-      });
+      
+      // Añadir capa al mapa
+      this.map.addLayer(farmLayer);
     },
     
     changeMapView(viewId) {
       if (viewId === 'valencia') {
-        this.map.flyTo({ center: [0.15, 39.5], zoom: 7 });
+        this.map.getView().animate({
+          center: fromLonLat([0.15, 39.5]),
+          zoom: 7,
+          duration: 1000
+        });
       } else if (viewId === 'mediterraneo') {
-        this.map.flyTo({ center: [10, 38], zoom: 4 });
+        this.map.getView().animate({
+          center: fromLonLat([10, 38]),
+          zoom: 4,
+          duration: 1000
+        });
       } else if (viewId === 'global') {
-        this.map.flyTo({ center: [0, 30], zoom: 2 });
+        this.map.getView().animate({
+          center: fromLonLat([0, 30]),
+          zoom: 2,
+          duration: 1000
+        });
       }
+      
+      this.currentView = viewId;
     },
     
-    getGradientStyle(variableName) {
-      variableName = variableName.toLowerCase();
-      let gradient = '';
-      
-      if (variableName.includes('temp') || variableName === 'thetao') {
-        gradient = 'background: linear-gradient(to right, blue, cyan, green, yellow, red)';
-      } else if (variableName.includes('vel') || variableName === 'uo' || variableName === 'vo') {
-        gradient = 'background: linear-gradient(to right, #0571b0, #92c5de, #f7f7f7, #f4a582)';
-      } else if (variableName.includes('nutrient') || variableName === 'no3') {
-        gradient = 'background: linear-gradient(to right, #eff3ff, #bdd7e7, #6baed6, #08519c)';
+    getGradientClass(layerId) {
+      if (layerId === 'temperature') {
+        return 'from-blue-500 via-green-500 to-red-500';
+      } else if (layerId === 'currents') {
+        return 'from-blue-500 via-gray-200 to-red-300';
       } else {
-        gradient = 'background: linear-gradient(to right, #edf8e9, #bae4b3, #74c476, #238b45)';
+        return 'from-blue-100 via-blue-300 to-blue-800';
       }
-      
-      return gradient;
     }
   }
 };
 </script>
 
-<style scoped>
-.mapboxgl-canvas {
-  outline: none;
+<style>
+/* Necesario para que el mapa ocupe todo el espacio disponible */
+#map {
+  width: 100%;
+  height: 100%;
 }
 </style>
