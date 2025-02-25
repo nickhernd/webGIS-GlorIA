@@ -1,6 +1,11 @@
-import { createApp } from 'vue'
-import App from './App.vue'
-import router from './router'
-import './assets/main.css'
+// src/main.js
+import { createApp } from 'vue';
+import App from './App.vue';
+import router from './router';
+import './assets/main.css';
+import 'leaflet/dist/leaflet.css';
+import 'leaflet.heat';
 
-createApp(App).use(router).mount('#app')
+const app = createApp(App);
+app.use(router);
+app.mount('#app');

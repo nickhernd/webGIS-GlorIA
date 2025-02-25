@@ -1,3 +1,4 @@
+<!-- src/views/Home.vue -->
 <template>
   <div class="flex flex-col h-screen bg-gray-900">
     <!-- Header/Navbar -->
@@ -75,7 +76,7 @@
       <div class="flex-1 flex flex-col relative">
         <!-- Componente de mapa -->
         <div class="flex-1 relative">
-          <MapComponent 
+          <LeafletMap 
             :selectedLayer="selectedLayer"
             :selectedDate="selectedDate"
             :selectedDepth="selectedDepth"
@@ -150,12 +151,12 @@
 </template>
 
 <script>
-import MapComponent from '../components/MapComponent.vue';
+import LeafletMap from '../components/LeafletMap.vue';
 
 export default {
   name: 'HomeView',
   components: {
-    MapComponent
+    LeafletMap
   },
   data() {
     return {
