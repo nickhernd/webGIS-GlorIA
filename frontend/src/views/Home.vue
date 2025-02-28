@@ -227,6 +227,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import LeafletMap from '../components/LeafletMap.vue';
 import StatsComponent from '../components/StatsComponent.vue';
+import DataService from '../services/DataService';
 
 export default {
   name: 'HomeView',
@@ -263,78 +264,88 @@ export default {
     });
     
     // Lista de piscifactorías
-    const farms = ref([
-      {
-        id: 1,
-        name: "Centro de Investigación Piscícola de El Palmar",
-        location: "El Palmar, Valencia",
-        coordinates: [39.4167, -0.3333],
-        type: "Investigación",
-        species: ["especies dulceacuícolas amenazadas"],
-        description: "Gestionado por VAERSA, enfocado en conservación mediante programas de producción y cría en cautividad."
-      },
-      {
-        id: 2,
-        name: "Centro de Cultivo de Peces de Tuéjar",
-        location: "Tuéjar, Valencia",
-        coordinates: [39.8833, -1.0167],
-        type: "Producción",
-        species: ["trucha arcoíris", "madrilla del Turia"],
-        description: "Especializado en trucha arcoíris y madrilla del Turia, con planes para otras especies."
-      },
-      {
-        id: 3,
-        name: "Centro de Cultivo de Peces de Aguas Templadas",
-        location: "Polinyà del Xúquer, Valencia",
-        coordinates: [39.1833, -0.4167],
-        type: "Reproducción y Engorde",
-        species: ["anguila", "fartet"],
-        description: "Dedicado a reproducción y engorde de diversas especies, incluyendo anguila y fartet."
-      },
-      {
-        id: 4,
-        name: "Polígono de Acuicultura de San Pedro del Pinatar",
-        location: "San Pedro del Pinatar, Murcia",
-        coordinates: [37.8667, -0.7833],
-        type: "Producción Comercial",
-        species: ["dorada", "lubina"],
-        description: "El polígono de acuicultura más grande de la Región de Murcia."
-      },
-      {
-        id: 5,
-        name: "Piscifactorías de Mazarrón",
-        location: "Mazarrón, Murcia",
-        coordinates: [37.5667, -1.6000],
-        type: "Producción Comercial",
-        species: ["dorada", "lubina"],
-        description: "Instalaciones dedicadas al cultivo de dorada y lubina."
-      }
-    ]);
+    const farms = ref([]);
     
-    // Conteo de alertas simulado
+    // Conteo de alertas
     const alertCounts = ref({
-      high: 1,
-      medium: 2,
-      low: 3
+      high: 0,
+      medium: 0,
+      low: 0
     });
     
     // Métodos
-    const updateMapLayer = () => {
-      console.log('Actualizando mapa con variable:', selectedVariable.value, 'y fecha:', selectedDate.value);
-      // Actualizar capa del mapa según la variable y fecha seleccionadas
-      if (mapComponent.value) {
-        // Aquí se llamaría al método correspondiente del componente mapa
+    // Cargar datos de piscifactorías
+    const loadFarms = async () => {
+      try {
+        showToastMessage('Cargando datos de piscifactorías...');
+        const response = await DataService.getPiscifactorias();
+        farms.value = response.data;
+        showToastMessage('Datos cargados correctamente');
+      } catch (error) {
+        console.error('Error al cargar piscifactorías:', error);
+        showToastMessage('Error al cargar datos de piscifactorías');
       }
     };
-    
-    const selectFarm = (farmId) => {
-      console.log('Piscifactoría seleccionada:', farmId);
+
+    // Cargar alertas
+    const loadAlerts = async () => {
+      try {
+        const response = await DataService.getAlertas();
+        
+        // Actualizar conteo de alertas según nivel
+        const counts = { high: 0, medium: 0, low: 0 };
+        response.data.forEach(alert => {
+          if (alert.nivel === 'alta') counts.high++;
+          else if (alert.nivel === 'media') counts.medium++;
+          else counts.low++;
+        });
+        
+        alertCounts.value = counts;
+      } catch (error) {
+        console.error('Error al cargar alertas:', error);
+      }
+    };
+
+    // Actualizar datos ambientales en el mapa
+    const updateMapLayer = async () => {
+      try {
+        const params = {
+          fecha: selectedDateString.value,
+          variable: selectedVariable.value
+        };
+        
+        const response = await DataService.getDatosAmbientales(params);
+        
+        // Aquí se actualizaría la capa del mapa con los datos recibidos
+        if (mapComponent.value) {
+          // Llamar al método del componente mapa para actualizar la capa
+          // mapComponent.value.updateLayer(response.data);
+          console.log('Datos ambientales actualizados:', response.data);
+        }
+      } catch (error) {
+        console.error('Error al cargar datos ambientales:', error);
+        showToastMessage('Error al cargar datos ambientales');
+      }
+    };
+
+    // Seleccionar una piscifactoría
+    const selectFarm = async (farmId) => {
       selectedFarmId.value = farmId;
       
-      // Mostrar toast de confirmación
-      showToastMessage(`Piscifactoría seleccionada: ${getSelectedFarmName()}`);
+      try {
+        if (farmId) {
+          // Cargar datos detallados de la piscifactoría
+          const response = await DataService.getPiscifactoria(farmId);
+          console.log('Datos detallados de piscifactoría:', response.data);
+          
+          // Mostrar toast de confirmación
+          showToastMessage(`Piscifactoría seleccionada: ${response.data.name}`);
+        }
+      } catch (error) {
+        console.error('Error al cargar detalles de piscifactoría:', error);
+      }
     };
-    
+
     const getSelectedFarmName = () => {
       if (!selectedFarmId.value) return '';
       const farm = farms.value.find(f => f.id === selectedFarmId.value);
@@ -372,13 +383,22 @@ export default {
     };
     
     // Funcionalidad para exportar datos
-    const exportData = () => {
+    const exportData = async () => {
       showToastMessage('Exportando datos...');
       
-      // Simular proceso de exportación
-      setTimeout(() => {
+      try {
+        const params = {
+          fecha: selectedDateString.value,
+          variable: selectedVariable.value,
+          piscifactoriaId: selectedFarmId.value || null
+        };
+        
+        const response = await DataService.exportarDatos(params);
         showToastMessage('Datos exportados correctamente');
-      }, 1500);
+      } catch (error) {
+        console.error('Error al exportar datos:', error);
+        showToastMessage('Error al exportar datos');
+      }
     };
     
     // Toast
@@ -405,11 +425,10 @@ export default {
       // Cargar configuraciones
       loadSavedSettings();
       
-      // Inicialización al cargar
+      // Cargar datos iniciales
+      loadFarms();
+      loadAlerts();
       updateMapLayer();
-      
-      // Simular carga de datos
-      showToastMessage('Datos cargados correctamente');
     });
     
     // Observar cambios en el ID de la piscifactoría seleccionada
@@ -421,6 +440,11 @@ export default {
           // Aquí se centraría el mapa en las coordenadas de la piscifactoría
         }
       }
+    });
+    
+    // Agregar watchers para reaccionar a cambios
+    watch([selectedVariable, selectedDateString], () => {
+      updateMapLayer();
     });
     
     return {
@@ -444,7 +468,9 @@ export default {
       showSettings,
       applySettings,
       saveSettings,
-      exportData
+      exportData,
+      loadFarms,
+      loadAlerts
     };
   }
 };
