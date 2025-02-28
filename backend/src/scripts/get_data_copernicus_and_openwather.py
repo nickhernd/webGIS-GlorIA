@@ -30,6 +30,17 @@ import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import urllib3
+
+class EnhancedPoolManager(urllib3.PoolManager):
+    def __init__(self, *args, **kwargs):
+        if 'maxsize' not in kwargs:
+            kwargs['maxsize'] = 50  # Aumentar de 10 a 50
+        super().__init__(*args, **kwargs)
+
+# Reemplazar el PoolManager por defecto
+original_pool_manager = urllib3.PoolManager
+urllib3.PoolManager = EnhancedPoolManager
 
 # Configuración de logging
 logging.basicConfig(
@@ -55,7 +66,7 @@ class CopernicusLogCapture(logging.Handler):
 
 # Constantes
 MAX_RETRY_ATTEMPTS = 5
-RETRY_DELAY = 60  # Segundos
+RETRY_DELAY = 180    # Segundos
 ROOT_DIR = Path(os.path.expanduser("~/webGIS-GlorIA"))
 DOWNLOAD_DIR = ROOT_DIR / "databases" / "copernicus_marine"
 METADATA_FILE = DOWNLOAD_DIR / "metadata.json"
@@ -115,8 +126,12 @@ def get_download_period(dataset_id, metadata):
     Para descargas incrementales.
     """
     # Período predeterminado: desde el principio del año pasado hasta hoy
+    #hoy = datetime.today()RETRY_DELAY 
+    #fecha_inicio_default = datetime(hoy.year - 1, 1, 1)
+    #fecha_fin = hoy
+
     hoy = datetime.today()
-    fecha_inicio_default = datetime(hoy.year - 1, 1, 1)
+    fecha_inicio_default = hoy - timedelta(days=7)  # Solo una semana de datos
     fecha_fin = hoy
     
     # Si hay datos previos, comenzar desde la última fecha descargada
