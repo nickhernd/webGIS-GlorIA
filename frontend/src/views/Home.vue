@@ -1,400 +1,535 @@
-<!-- src/views/Home.vue -->
 <template>
-  <div class="flex flex-col h-screen bg-gray-900">
-    <!-- Header/Navbar -->
-    <header class="bg-gray-800 text-white p-2 flex items-center justify-between">
-      <h1 class="text-xl font-bold">WebGIS GLORiA - Monitorización Piscifactorías</h1>
-      <div class="flex items-center gap-2">
-        <span class="text-sm">{{ formattedDate }}</span>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <img src="../assets/logo-gloria.png" alt="GlorIA Logo" v-if="false" />
+        <h1>WebGIS GlorIA</h1>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary">
+          <i class="fas fa-user"></i> Login
+        </button>
+        <button class="btn btn-info">
+          <i class="fas fa-info-circle"></i> Ayuda
+        </button>
       </div>
     </header>
 
-    <!-- Main content -->
-    <div class="flex flex-1 overflow-hidden">
+    <!-- Main Content -->
+    <div class="main-content">
       <!-- Sidebar -->
-      <div class="w-64 bg-gray-800 text-white p-4 overflow-y-auto">
-        <h2 class="text-xl font-bold mb-4">Capas</h2>
-        
-        <!-- Selector de capas -->
-        <div 
-          v-for="layer in availableLayers" 
-          :key="layer.id"
-          class="bg-white rounded p-4 text-gray-900 mb-4 cursor-pointer hover:shadow-lg transition-shadow"
-          @click="selectLayer(layer)"
-          :class="{'ring-2 ring-blue-500': selectedLayer?.id === layer.id}"
-        >
-          <h3 class="text-blue-600 font-medium">{{ layer.title }}</h3>
-          <p class="text-gray-600 text-sm">{{ layer.variable }}</p>
-          <p class="text-gray-600 text-sm">{{ layer.date }} • {{ layer.depth }} • {{ layer.resolution }}</p>
-          <div class="mt-2">
-            <div class="h-2 bg-gradient-to-r" :class="getGradientClass(layer.id)"></div>
-            <div class="flex justify-between text-xs mt-1">
-              <span>{{ layer.min }}{{ layer.unit }}</span>
-              <span>{{ layer.max }}{{ layer.unit }}</span>
+      <Sidebar 
+        :piscifactorias="piscifactorias" 
+        :selectedPiscifactoria="selectedPiscifactoria"
+        :variables="variables"
+        :selectedVariable="selectedVariable"
+        :dateRange="dateRange"
+        @piscifactoria-selected="handlePiscifactoriaSelected"
+        @variable-selected="handleVariableSelected"
+        @date-range-changed="handleDateRangeChanged"
+      />
+
+      <!-- Map and visualizations container -->
+      <div class="content-wrapper">
+        <!-- Map component takes most of the space -->
+        <div class="map-container">
+          <LeafletMap 
+            :piscifactorias="piscifactorias"
+            :selectedPiscifactoria="selectedPiscifactoria"
+            :variablesData="filteredVariablesData"
+            :selectedVariable="selectedVariable"
+            @piscifactoria-clicked="handlePiscifactoriaSelected"
+          />
+        </div>
+
+        <!-- Statistics and visualizations -->
+        <div class="stats-container" v-if="selectedPiscifactoria">
+          <div class="stats-header">
+            <h2>{{ selectedPiscifactoria.nombre }}</h2>
+            <div class="stats-controls">
+              <button class="btn btn-sm btn-primary" @click="toggleStatsView">
+                <i :class="showChart ? 'fas fa-table' : 'fas fa-chart-line'"></i>
+                {{ showChart ? 'Ver tabla' : 'Ver gráfico' }}
+              </button>
+              <button class="btn btn-sm btn-secondary" @click="exportData">
+                <i class="fas fa-download"></i> Exportar
+              </button>
             </div>
           </div>
-        </div>
-        
-        <!-- Selector de fecha -->
-        <div class="mt-6">
-          <h3 class="text-lg font-medium mb-2">Fecha</h3>
-          <input 
-            type="date" 
-            class="w-full p-2 rounded bg-gray-700 text-white border border-gray-600"
-            v-model="selectedDate"
-          />
-        </div>
-        
-        <!-- Filtros adicionales -->
-        <div class="mt-6">
-          <h3 class="text-lg font-medium mb-2">Filtros</h3>
-          
-          <div class="mb-2">
-            <label class="block text-sm mb-1">Profundidad</label>
-            <select 
-              class="w-full p-2 rounded bg-gray-700 text-white border border-gray-600"
-              v-model="selectedDepth"
-            >
-              <option value="-0.5">-0.5m (Superficie)</option>
-              <option value="-10">-10m</option>
-              <option value="-50">-50m</option>
-              <option value="-100">-100m</option>
-            </select>
-          </div>
-          
-          <div class="mb-2">
-            <label class="block text-sm mb-1">Resolución</label>
-            <select class="w-full p-2 rounded bg-gray-700 text-white border border-gray-600">
-              <option value="daily">Diaria</option>
-              <option value="monthly">Mensual</option>
-            </select>
-          </div>
-        </div>
-      </div>
 
-      <!-- Mapa y contenido principal -->
-      <div class="flex-1 flex flex-col relative">
-        <!-- Componente de mapa -->
-        <div class="flex-1 relative">
-          <LeafletMap 
-            :selectedLayer="selectedLayer"
-            :selectedDate="selectedDate"
-            :selectedDepth="selectedDepth"
-          />
-          
-          <!-- Predicción de riesgo -->
-          <div class="absolute top-20 right-4 bg-white p-3 rounded shadow z-10 max-w-xs">
-            <h3 class="text-lg font-bold mb-2">Predicción de Riesgo</h3>
-            
-            <div v-if="predictions.length > 0" class="space-y-3">
-              <div 
-                v-for="pred in predictions" 
-                :key="pred.id"
-                class="p-2 rounded border"
-                :class="getRiskClass(pred.risk)"
-              >
-                <div class="font-medium">{{ pred.name }}</div>
-                <div class="flex justify-between text-sm">
-                  <span>Nivel de riesgo:</span>
-                  <span class="font-bold">{{ getRiskLabel(pred.risk) }}</span>
-                </div>
-                <div class="mt-2 text-xs">
-                  <div>Temp. agua: {{ pred.factors.waterTemperature.toFixed(1) }}°C</div>
-                  <div>Vel. corriente: {{ pred.factors.currentSpeed.toFixed(1) }} m/s</div>
-                  <div>Vel. viento: {{ pred.factors.windSpeed.toFixed(1) }} km/h</div>
-                </div>
+          <!-- Charts or Tables based on view mode -->
+          <div class="stats-content">
+            <StatsComponent 
+              v-if="showChart"
+              :piscifactoria="selectedPiscifactoria"
+              :variable="selectedVariable"
+              :variablesData="filteredVariablesData"
+              :dateRange="dateRange"
+            />
+            <div v-else class="data-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>{{ selectedVariable.nombre }}</th>
+                    <th>Unidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(data, index) in filteredVariablesData.slice(0, 10)" :key="index">
+                    <td>{{ formatDate(data.fecha_tiempo) }}</td>
+                    <td>{{ data.valor.toFixed(2) }}</td>
+                    <td>{{ selectedVariable.unidad }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="table-pagination" v-if="filteredVariablesData.length > 10">
+                <span>Mostrando 1-10 de {{ filteredVariablesData.length }} resultados</span>
+                <button class="btn btn-sm btn-secondary">Ver más</button>
               </div>
             </div>
-            
-            <div v-else class="text-gray-500">
-              No hay predicciones disponibles
-            </div>
           </div>
         </div>
-        
-        <!-- Timeline -->
-        <div class="h-20 bg-gray-800 p-2">
-          <div class="flex items-center gap-2">
-            <button 
-              class="text-white bg-gray-700 p-1 rounded hover:bg-gray-600" 
-              @click="togglePlayback"
-            >
-              {{ isPlaying ? '⏸' : '▶' }}
-            </button>
-            <div class="flex-1 h-2 bg-gray-700 rounded-full relative cursor-pointer" @click="handleTimelineClick">
-              <div 
-                class="absolute w-4 h-4 bg-blue-500 rounded-full top-1/2 transform -translate-y-1/2 cursor-pointer"
-                :style="{ left: timelinePosition + '%' }"
-                @mousedown="startDragging"
-              ></div>
-            </div>
-            <span class="text-white text-sm">{{ timelineYear }}</span>
-          </div>
-          <div class="flex justify-between mt-2 text-gray-400 text-xs px-8">
-            <span>Ene</span>
-            <span>Feb</span>
-            <span>Mar</span>
-            <span>Abr</span>
-            <span>May</span>
-            <span>Jun</span>
-            <span>Jul</span>
-            <span>Ago</span>
-            <span>Sep</span>
-            <span>Oct</span>
-            <span>Nov</span>
-            <span>Dic</span>
+
+        <!-- Alert for no selection -->
+        <div class="no-data-message" v-if="!selectedPiscifactoria">
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            Selecciona una piscifactoría en el mapa o en el panel lateral para ver sus datos
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div>WebGIS GlorIA &copy; 2025</div>
+      <div>Versión 1.0.0</div>
+    </footer>
   </div>
 </template>
 
 <script>
+import Sidebar from '../components/Sidebar.vue';
 import LeafletMap from '../components/LeafletMap.vue';
+import StatsComponent from '../components/StatsComponent.vue';
+import DataService from '../services/DataService';
+import { ref, reactive, computed, onMounted } from 'vue';
 
 export default {
   name: 'HomeView',
   components: {
-    LeafletMap
+    Sidebar,
+    LeafletMap,
+    StatsComponent
   },
-  data() {
+  setup() {
+    // State
+    const piscifactorias = ref([]);
+    const selectedPiscifactoria = ref(null);
+    const variables = ref([
+      { id: 1, nombre: 'Temperatura', unidad: '°C', color: '#f44336' },
+      { id: 2, nombre: 'Oxígeno', unidad: 'mg/L', color: '#2196f3' },
+      { id: 3, nombre: 'pH', unidad: '', color: '#4caf50' },
+      { id: 4, nombre: 'Salinidad', unidad: 'PSU', color: '#ff9800' },
+      { id: 5, nombre: 'Corriente (u)', unidad: 'm/s', color: '#9c27b0' },
+      { id: 6, nombre: 'Corriente (v)', unidad: 'm/s', color: '#607d8b' },
+    ]);
+    const selectedVariable = ref(variables.value[0]);
+    const variablesData = ref([]);
+    const dateRange = reactive({
+      start: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+      end: new Date()
+    });
+    const showChart = ref(true);
+
+    // Computed
+    const filteredVariablesData = computed(() => {
+      if (!selectedPiscifactoria.value || !selectedVariable.value) {
+        return [];
+      }
+      
+      return variablesData.value.filter(data => {
+        const dataDate = new Date(data.fecha_tiempo);
+        return data.piscifactoria_id === selectedPiscifactoria.value.id &&
+               data.variable_nombre === selectedVariable.value.nombre &&
+               dataDate >= dateRange.start &&
+               dataDate <= dateRange.end;
+      });
+    });
+
+    // Methods
+    const loadPiscifactorias = async () => {
+      try {
+        const response = await DataService.getPiscifactorias();
+        piscifactorias.value = response.data;
+      } catch (error) {
+        console.error('Error loading piscifactorias:', error);
+        // Add sample data for development
+        piscifactorias.value = [
+          {
+            id: 1,
+            nombre: 'Centro de Investigación Piscícola de El Palmar',
+            descripcion: 'Centro de conservación de especies dulceacuícolas amenazadas',
+            tipo: 'continental',
+            especies: ['especies amenazadas'],
+            ciudad: 'El Palmar',
+            provincia: 'Valencia',
+            comunidad_autonoma: 'Comunidad Valenciana',
+            geometria: [-0.3333, 39.4167]
+          },
+          {
+            id: 2,
+            nombre: 'Centro de Cultivo de Peces de Tuéjar',
+            descripcion: 'Producción de trucha arcoíris y madrilla del Turia',
+            tipo: 'continental',
+            especies: ['trucha arcoíris', 'madrilla del Turia'],
+            ciudad: 'Tuéjar',
+            provincia: 'Valencia',
+            comunidad_autonoma: 'Comunidad Valenciana',
+            geometria: [-1.0167, 39.8833]
+          },
+          {
+            id: 3,
+            nombre: 'Polígono de Acuicultura de San Pedro del Pinatar',
+            descripcion: 'Polígono de acuicultura más grande de la Región de Murcia',
+            tipo: 'marina',
+            especies: ['dorada', 'lubina'],
+            ciudad: 'San Pedro del Pinatar',
+            provincia: 'Murcia',
+            comunidad_autonoma: 'Región de Murcia',
+            geometria: [-0.7833, 37.8667]
+          },
+          {
+            id: 4,
+            nombre: 'Piscifactorías de Mazarrón',
+            descripcion: 'Instalaciones dedicadas al cultivo de dorada y lubina',
+            tipo: 'marina',
+            especies: ['dorada', 'lubina'],
+            ciudad: 'Mazarrón',
+            provincia: 'Murcia',
+            comunidad_autonoma: 'Región de Murcia',
+            geometria: [-1.6000, 37.5667]
+          }
+        ];
+      }
+    };
+
+    const loadVariablesData = async () => {
+      try {
+        const response = await DataService.getVariablesData();
+        variablesData.value = response.data;
+      } catch (error) {
+        console.error('Error loading variables data:', error);
+        // Add sample data for development
+        const sampleData = [];
+        const today = new Date();
+        
+        // Generate sample data for each piscifactoria and variable
+        piscifactorias.value.forEach(piscifactoria => {
+          variables.value.forEach(variable => {
+            // Create data points for the last 30 days
+            for (let i = 0; i < 30; i++) {
+              const date = new Date(today);
+              date.setDate(date.getDate() - i);
+              
+              // Generate some random value with realistic variations
+              let baseValue;
+              switch(variable.nombre) {
+                case 'Temperatura': baseValue = 18 + Math.sin(i/5) * 4; break;
+                case 'Oxígeno': baseValue = 7 + Math.sin(i/3) * 1.5; break;
+                case 'pH': baseValue = 7.8 + Math.sin(i/4) * 0.4; break;
+                case 'Salinidad': baseValue = 35 + Math.sin(i/6) * 1; break;
+                case 'Corriente (u)': baseValue = 0.3 + Math.sin(i/2) * 0.2; break;
+                case 'Corriente (v)': baseValue = 0.2 + Math.sin(i/3) * 0.15; break;
+                default: baseValue = 0;
+              }
+              
+              // Add random noise
+              const value = baseValue + (Math.random() - 0.5) * 0.5;
+              
+              sampleData.push({
+                id: sampleData.length + 1,
+                piscifactoria_id: piscifactoria.id,
+                variable_nombre: variable.nombre,
+                fecha_tiempo: date.toISOString(),
+                valor: value,
+                geometria: piscifactoria.geometria
+              });
+            }
+          });
+        });
+        
+        variablesData.value = sampleData;
+      }
+    };
+
+    const handlePiscifactoriaSelected = (piscifactoria) => {
+      selectedPiscifactoria.value = piscifactoria;
+    };
+
+    const handleVariableSelected = (variable) => {
+      selectedVariable.value = variable;
+    };
+
+    const handleDateRangeChanged = (newRange) => {
+      dateRange.start = newRange.start;
+      dateRange.end = newRange.end;
+    };
+
+    const toggleStatsView = () => {
+      showChart.value = !showChart.value;
+    };
+
+    const exportData = () => {
+      if (!filteredVariablesData.value.length) return;
+
+      // Prepare CSV content
+      let csvContent = "data:text/csv;charset=utf-8,";
+      csvContent += "Fecha,Valor,Unidad\n";
+      
+      filteredVariablesData.value.forEach(data => {
+        csvContent += `${formatDate(data.fecha_tiempo)},${data.valor.toFixed(2)},${selectedVariable.value.unidad}\n`;
+      });
+      
+      // Create download link
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `${selectedPiscifactoria.value.nombre}_${selectedVariable.value.nombre}_data.csv`);
+      document.body.appendChild(link);
+      
+      // Trigger download
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    const formatDate = (dateString) => {
+      const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+      return new Date(dateString).toLocaleDateString('es-ES', options);
+    };
+
+    // Lifecycle
+    onMounted(() => {
+      loadPiscifactorias();
+      setTimeout(loadVariablesData, 500); // Load variables data after piscifactorias
+    });
+
     return {
-      selectedLayer: null,
-      selectedDate: '2025-03-02',
-      selectedDepth: -0.5,
-      timelinePosition: 75, // Posición en la línea de tiempo (0-100)
-      timelineYear: '2025',
-      isPlaying: false,
-      playbackInterval: null,
-      isDragging: false,
-      availableLayers: [
-        {
-          id: 'temperature',
-          title: 'Temperatura del agua',
-          variable: 'thetao',
-          date: '02/03/2025',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 30,
-          unit: '°C'
-        },
-        {
-          id: 'currents',
-          title: 'Corrientes marinas',
-          variable: 'uo-vo',
-          date: '02/03/2025',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 1.5,
-          unit: 'm/s'
-        },
-        {
-          id: 'nutrients',
-          title: 'Nutrientes',
-          variable: 'no3',
-          date: '02/03/2025',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 5,
-          unit: 'mmol/m³'
-        }
-      ],
-      predictions: [
-        {
-          id: 1, 
-          name: 'Piscifactoría Sagunto', 
-          lat: 39.6766, 
-          lon: -0.2026,
-          risk: 'low',
-          factors: {
-            waterTemperature: 16.5,
-            currentSpeed: 0.3,
-            windSpeed: 8.2,
-            waveHeight: 0.8
-          }
-        },
-        {
-          id: 2, 
-          name: 'Piscifactoría Burriana', 
-          lat: 39.8573, 
-          lon: 0.0522,
-          risk: 'medium',
-          factors: {
-            waterTemperature: 18.2,
-            currentSpeed: 0.7,
-            windSpeed: 12.5,
-            waveHeight: 1.2
-          }
-        },
-        {
-          id: 3, 
-          name: 'Piscifactoría Calpe', 
-          lat: 38.6333, 
-          lon: 0.0714,
-          risk: 'high',
-          factors: {
-            waterTemperature: 22.8,
-            currentSpeed: 0.9,
-            windSpeed: 17.3,
-            waveHeight: 2.1
-          }
-        }
-      ]
-    }
-  },
-  computed: {
-    formattedDate() {
-      return new Date(this.selectedDate).toLocaleDateString('es-ES');
-    }
-  },
-  mounted() {
-    // Seleccionar la primera capa por defecto
-    if (this.availableLayers.length > 0) {
-      this.selectLayer(this.availableLayers[0]);
-    }
-  },
-  methods: {
-    selectLayer(layer) {
-      this.selectedLayer = layer;
-    },
-    
-    getGradientClass(layerId) {
-      if (layerId === 'temperature') {
-        return 'from-blue-500 via-green-500 to-red-500';
-      } else if (layerId === 'currents') {
-        return 'from-blue-500 via-gray-200 to-red-300';
-      } else {
-        return 'from-blue-100 via-blue-300 to-blue-800';
-      }
-    },
-    
-    getRiskClass(risk) {
-      const classes = {
-        low: 'border-green-500 bg-green-50',
-        medium: 'border-yellow-500 bg-yellow-50',
-        high: 'border-red-500 bg-red-50'
-      };
-      
-      return classes[risk] || classes.low;
-    },
-    
-    getRiskLabel(risk) {
-      const labels = {
-        low: 'Bajo',
-        medium: 'Medio',
-        high: 'Alto'
-      };
-      
-      return labels[risk] || 'Desconocido';
-    },
-    
-    togglePlayback() {
-      this.isPlaying = !this.isPlaying;
-      
-      if (this.isPlaying) {
-        this.playbackInterval = setInterval(() => {
-          // Avanzar un día en cada intervalo
-          const date = new Date(this.selectedDate);
-          date.setDate(date.getDate() + 1);
-          
-          if (date > new Date('2025-12-31')) {
-            // Reiniciar al comienzo del rango
-            date.setFullYear(2023);
-            date.setMonth(0);
-            date.setDate(1);
-          }
-          
-          this.selectedDate = date.toISOString().split('T')[0];
-          this.updateTimelineFromDate();
-        }, 1000); // Actualizar cada segundo
-      } else {
-        clearInterval(this.playbackInterval);
-      }
-    },
-    
-    updateTimelineFromDate() {
-      const date = new Date(this.selectedDate);
-      this.timelineYear = date.getFullYear().toString();
-      
-      // Calcular posición en la línea de tiempo (simplificado)
-      const startYear = 2023;
-      const endYear = 2025;
-      const yearRange = endYear - startYear;
-      
-      const yearFraction = date.getMonth() / 12;
-      const yearValue = date.getFullYear() + yearFraction - startYear;
-      
-      this.timelinePosition = (yearValue / yearRange) * 100;
-    },
-    
-    startDragging(event) {
-      this.isDragging = true;
-      
-      // Si estaba reproduciendo, pausar
-      if (this.isPlaying) {
-        this.togglePlayback();
-      }
-      
-      document.addEventListener('mousemove', this.handleDrag);
-      document.addEventListener('mouseup', this.stopDragging);
-    },
-    
-    handleDrag(event) {
-      if (!this.isDragging) return;
-      
-      const timeline = event.target.parentElement;
-      const rect = timeline.getBoundingClientRect();
-      const position = ((event.clientX - rect.left) / rect.width) * 100;
-      
-      this.timelinePosition = Math.max(0, Math.min(100, position));
-      this.updateDateFromTimeline();
-    },
-    
-    handleTimelineClick(event) {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const position = ((event.clientX - rect.left) / rect.width) * 100;
-      
-      this.timelinePosition = Math.max(0, Math.min(100, position));
-      this.updateDateFromTimeline();
-    },
-    
-    updateDateFromTimeline() {
-      // Convertir posición a fecha (simplificado)
-      const startYear = 2023;
-      const endYear = 2025;
-      const yearRange = endYear - startYear;
-      
-      const yearValue = (this.timelinePosition / 100) * yearRange + startYear;
-      const year = Math.floor(yearValue);
-      const monthFraction = yearValue - year;
-      const month = Math.floor(monthFraction * 12);
-      
-      const date = new Date(year, month, 15);
-      this.selectedDate = date.toISOString().split('T')[0];
-      this.timelineYear = year.toString();
-    },
-    
-    stopDragging() {
-      this.isDragging = false;
-      document.removeEventListener('mousemove', this.handleDrag);
-      document.removeEventListener('mouseup', this.stopDragging);
-    }
-  },
-  beforeUnmount() {
-    // Limpiar interval si la vista se desmonta
-    if (this.playbackInterval) {
-      clearInterval(this.playbackInterval);
-    }
-    
-    // Limpiar event listeners
-    if (this.isDragging) {
-      document.removeEventListener('mousemove', this.handleDrag);
-      document.removeEventListener('mouseup', this.stopDragging);
-    }
+      piscifactorias,
+      selectedPiscifactoria,
+      variables,
+      selectedVariable,
+      variablesData,
+      filteredVariablesData,
+      dateRange,
+      showChart,
+      handlePiscifactoriaSelected,
+      handleVariableSelected,
+      handleDateRangeChanged,
+      toggleStatsView,
+      exportData,
+      formatDate
+    };
   }
 };
 </script>
+
+<style scoped>
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background-color: #f5f7f9;
+}
+
+.app-header {
+  background-color: #2c3e50;
+  color: white;
+  padding: 0.5rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 60px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+}
+
+.logo h1 {
+  font-size: 1.5rem;
+  margin: 0;
+  margin-left: 10px;
+}
+
+.logo img {
+  height: 40px;
+  margin-right: 10px;
+}
+
+.header-actions button {
+  margin-left: 10px;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.content-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.map-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.stats-container {
+  height: 300px;
+  background-color: white;
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  overflow: auto;
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.stats-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.stats-controls button {
+  margin-left: 0.5rem;
+}
+
+.stats-content {
+  height: calc(100% - 40px);
+  overflow: auto;
+}
+
+.data-table {
+  width: 100%;
+}
+
+.data-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th, .data-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.data-table th {
+  background-color: #f5f7f9;
+  font-weight: 600;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.no-data-message {
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+.alert {
+  padding: 1rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.alert i {
+  margin-right: 0.5rem;
+}
+
+.alert-info {
+  background-color: #e3f2fd;
+  color: #0d47a1;
+}
+
+.app-footer {
+  background-color: #2c3e50;
+  color: white;
+  padding: 0.5rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 40px;
+  font-size: 0.85rem;
+}
+
+/* Utility classes for buttons */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+}
+
+.btn i {
+  margin-right: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.btn-primary {
+  background-color: #1976d2;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #1565c0;
+}
+
+.btn-secondary {
+  background-color: #78909c;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #607d8b;
+}
+
+.btn-info {
+  background-color: #26a69a;
+  color: white;
+}
+
+.btn-info:hover {
+  background-color: #00897b;
+}
+</style>
