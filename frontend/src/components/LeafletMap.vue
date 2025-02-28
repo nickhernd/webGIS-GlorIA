@@ -1,424 +1,371 @@
-<!-- src/components/LeafletMap.vue -->
+<!-- frontend/src/components/LeafletMap.vue -->
 <template>
-    <div class="map-container">
-      <div id="map" style="width: 100%; height: 100%;"></div>
-      
-      <!-- Leyenda de la capa seleccionada -->
-      <div class="legend" v-if="selectedLayer">
-        <h4>{{ selectedLayer.title }}</h4>
-        <div class="gradient" :style="getGradientStyle(selectedLayer.id)"></div>
-        <div class="labels">
-          <span>{{ selectedLayer.min }}{{ selectedLayer.unit }}</span>
-          <span>{{ selectedLayer.max }}{{ selectedLayer.unit }}</span>
-        </div>
-      </div>
+  <div class="map-container">
+    <div id="map" ref="mapContainer" class="map"></div>
+    <div v-if="loading" class="loading-overlay">
+      <div class="loading-spinner"></div>
     </div>
-  </template>
-  
-  <script>
-  import L from 'leaflet';
-  import 'leaflet/dist/leaflet.css';
-  
-  export default {
-    name: 'LeafletMap',
-    props: {
-      selectedLayer: {
-        type: Object,
-        default: null
+  </div>
+</template>
+
+<script>
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { useStore } from 'vuex';
+
+export default {
+  name: 'LeafletMap',
+  props: {
+    selectedDate: {
+      type: Date,
+      default: () => new Date()
+    },
+    selectedVariable: {
+      type: String,
+      default: 'temperature'
+    }
+  },
+  setup(props, { emit }) {
+    const mapContainer = ref(null);
+    const map = ref(null);
+    const markers = ref([]);
+    const heatLayer = ref(null);
+    const loading = ref(true);
+    const store = useStore();
+    const fishFarms = ref([]);
+
+    // Lista de piscifactorías en la Comunidad Valenciana y Murcia
+    const piscifactorias = [
+      {
+        id: 1,
+        name: "Centro de Investigación Piscícola de El Palmar",
+        location: "El Palmar, Valencia",
+        coordinates: [39.4167, -0.3333],
+        type: "Investigación",
+        species: ["especies dulceacuícolas amenazadas"],
+        description: "Gestionado por VAERSA, enfocado en conservación mediante programas de producción y cría en cautividad."
       },
-      selectedDate: {
-        type: String,
-        default: null
+      {
+        id: 2,
+        name: "Centro de Cultivo de Peces de Tuéjar",
+        location: "Tuéjar, Valencia",
+        coordinates: [39.8833, -1.0167],
+        type: "Producción",
+        species: ["trucha arcoíris", "madrilla del Turia"],
+        description: "Especializado en trucha arcoíris y madrilla del Turia, con planes para otras especies."
       },
-      selectedDepth: {
-        type: [Number, String],
-        default: -0.5
+      {
+        id: 3,
+        name: "Centro de Cultivo de Peces de Aguas Templadas",
+        location: "Polinyà del Xúquer, Valencia",
+        coordinates: [39.1833, -0.4167],
+        type: "Reproducción y Engorde",
+        species: ["anguila", "fartet"],
+        description: "Dedicado a reproducción y engorde de diversas especies, incluyendo anguila y fartet."
+      },
+      {
+        id: 4,
+        name: "Polígono de Acuicultura de San Pedro del Pinatar",
+        location: "San Pedro del Pinatar, Murcia",
+        coordinates: [37.8667, -0.7833],
+        type: "Producción Comercial",
+        species: ["dorada", "lubina"],
+        description: "El polígono de acuicultura más grande de la Región de Murcia."
+      },
+      {
+        id: 5,
+        name: "Piscifactorías de Mazarrón",
+        location: "Mazarrón, Murcia",
+        coordinates: [37.5667, -1.6000],
+        type: "Producción Comercial",
+        species: ["dorada", "lubina"],
+        description: "Instalaciones dedicadas al cultivo de dorada y lubina."
       }
-    },
-    data() {
-      return {
-        map: null,
-        baseLayers: {},
-        dataLayers: {},
-        farmMarkers: [],
-        legend: null,
-        heatmap: null
-      };
-    },
-    watch: {
-      selectedLayer(newLayer) {
-        if (newLayer && this.map) {
-          this.updateDataLayer();
-        }
-      },
-      selectedDate() {
-        if (this.selectedLayer && this.map) {
-          this.updateDataLayer();
-        }
-      },
-      selectedDepth() {
-        if (this.selectedLayer && this.map) {
-          this.updateDataLayer();
-        }
+    ];
+
+    // Función para inicializar el mapa
+    const initMap = () => {
+      if (mapContainer.value) {
+        // Crear mapa centrado en la Comunidad Valenciana/Murcia
+        map.value = L.map('map').setView([38.8, -0.8], 8);
+        
+        // Añadir capa base de OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 18
+        }).addTo(map.value);
+        
+        // Añadir marcadores para las piscifactorías
+        addFishFarmMarkers();
+
+        // Establecer límites del mapa a la región de Valencia y Murcia
+        const bounds = L.latLngBounds(
+          L.latLng(40.2, -1.8),  // Esquina noroeste (aprox.)
+          L.latLng(37.2, 0.2)    // Esquina sureste (aprox.)
+        );
+        map.value.setMaxBounds(bounds);
+        map.value.on('dragend', () => {
+          if (!map.value.getBounds().intersects(bounds)) {
+            map.value.panInsideBounds(bounds, { animate: false });
+          }
+        });
+
+        // Cargar datos ambientales
+        loadEnvironmentalData();
       }
-    },
-    mounted() {
-      console.log('Inicializando mapa Leaflet');
-      this.initMap();
-    },
-    methods: {
-      initMap() {
-        // Crear el mapa centrado en la Comunidad Valenciana
-        this.map = L.map('map', {
-          center: [38.5, -0.5], // Centrado entre Valencia y Murcia
-          zoom: 8,
-          minZoom: 6,  // Limitar el zoom mínimo
-          maxZoom: 12  // Limitar el zoom máximo
-        });
-  
-        // Añadir capa base oscura
-        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-          subdomains: 'abcd',
-          maxZoom: 19
-        });
-  
-        // Añadir capa base de satélite
-        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-        });
-  
-        // Almacenar capas base
-        this.baseLayers = {
-          "Oscuro": darkLayer,
-          "Satélite": satelliteLayer
-        };
-  
-        // Añadir capa por defecto
-        darkLayer.addTo(this.map);
-        
-        // Añadir control de capas
-        L.control.layers(this.baseLayers, {}).addTo(this.map);
-  
-        // Añadir control de escala
-        L.control.scale({imperial: false}).addTo(this.map);
-        
-        // Añadir marcadores de piscifactorías
-        this.addFishFarmMarkers();
-        
-        console.log('Mapa Leaflet inicializado correctamente');
-      },
+    };
+
+    // Función para añadir marcadores de piscifactorías
+    const addFishFarmMarkers = () => {
+      markers.value = [];
       
-      addFishFarmMarkers() {
-        // Datos de ejemplo de piscifactorías
-        const farms = [
-          { id: 1, name: 'Piscifactoría Sagunto', lat: 39.6766, lon: -0.2026, risk: 'low' },
-          { id: 2, name: 'Piscifactoría Burriana', lat: 39.8573, lon: 0.0522, risk: 'medium' },
-          { id: 3, name: 'Piscifactoría Calpe', lat: 38.6333, lon: 0.0714, risk: 'high' }
-        ];
+      piscifactorias.forEach(farm => {
+        const customIcon = L.divIcon({
+          className: 'custom-marker',
+          html: `<div class="marker-icon fish-farm" data-id="${farm.id}"></div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
         
-        // Estilos según nivel de riesgo
-        const getMarkerStyle = (risk) => {
-          let color;
-          if (risk === 'low') color = '#3CB043';
-          else if (risk === 'medium') color = '#FFA500';
-          else if (risk === 'high') color = '#FF0000';
-          else color = '#FFFFFF';
-          
-          return L.divIcon({
-            className: 'custom-div-icon',
-            html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
-          });
-        };
-        
-        // Añadir marcadores al mapa
-        farms.forEach(farm => {
-          const marker = L.marker([farm.lat, farm.lon], {
-            icon: getMarkerStyle(farm.risk)
-          }).addTo(this.map);
-          
-          marker.bindPopup(`
-            <div>
-              <h3 style="font-weight: bold;">${farm.name}</h3>
-              <p>Nivel de riesgo: ${farm.risk}</p>
+        const marker = L.marker(farm.coordinates, { icon: customIcon })
+          .addTo(map.value)
+          .bindPopup(`
+            <div class="popup-content">
+              <h3>${farm.name}</h3>
+              <p><strong>Ubicación:</strong> ${farm.location}</p>
+              <p><strong>Tipo:</strong> ${farm.type}</p>
+              <p><strong>Especies:</strong> ${farm.species.join(', ')}</p>
+              <p>${farm.description}</p>
+              <button class="popup-btn" onclick="window.selectFishFarm(${farm.id})">Ver detalles</button>
             </div>
           `);
-          
-          this.farmMarkers.push(marker);
-        });
-      },
+        
+        markers.value.push(marker);
+        
+        // Añadir al array de fishFarms para referencia
+        fishFarms.value.push(farm);
+      });
       
-      updateDataLayer() {
-        if (!this.selectedLayer || !this.map) return;
-        
-        console.log(`Actualizando capa: ${this.selectedLayer.id}`);
-        
-        // Limpiar capas de datos existentes
-        if (this.heatmap) {
-          this.map.removeLayer(this.heatmap);
-          this.heatmap = null;
+      // Definir método global para ser accesible desde el popup
+      window.selectFishFarm = (id) => {
+        emit('farm-selected', id);
+      };
+    };
+
+    // Función para cargar datos ambientales basados en fecha y variable seleccionada
+    const loadEnvironmentalData = () => {
+      loading.value = true;
+      
+      // Simulación de obtención de datos
+      setTimeout(() => {
+        // Añadir capa de calor para visualizar datos ambientales
+        if (props.selectedVariable === 'temperature') {
+          addTemperatureLayer();
+        } else if (props.selectedVariable === 'currents') {
+          addCurrentsLayer();
+        } else if (props.selectedVariable === 'salinity') {
+          addSalinityLayer();
         }
         
-        // Generar datos simulados según el tipo de capa
-        const data = this.generateOceanData(
-          this.selectedLayer.id, 
-          this.selectedDate, 
-          this.selectedDepth
-        );
-        
-        // Visualizar datos según el tipo de capa
-        if (this.selectedLayer.id === 'temperature') {
-          this.showTemperatureLayer(data);
-        } else if (this.selectedLayer.id === 'currents') {
-          this.showCurrentsLayer(data);
-        } else if (this.selectedLayer.id === 'nutrients') {
-          this.showNutrientsLayer(data);
-        }
-      },
+        loading.value = false;
+      }, 1000);
+    };
+    
+    // Funciones para añadir capas de datos ambientales
+    const addTemperatureLayer = () => {
+      // Limpiar capa anterior si existe
+      if (heatLayer.value) {
+        map.value.removeLayer(heatLayer.value);
+      }
       
-      generateOceanData(layerId, date, depth) {
-        // Generar grid de puntos con valores simulados
-        const points = [];
-        const dateObj = new Date(date);
-        const depthValue = parseFloat(depth);
-        
-        // Ajustar valores según fecha (simular cambios temporales)
-        const monthOffset = dateObj.getMonth() / 12; // 0-1 según el mes
-        
-        // Generar puntos en la región de interés
-        for (let lon = -1.2; lon <= 1.2; lon += 0.05) {
-          for (let lat = 37.5; lat <= 40.5; lat += 0.05) {
-            // Solo incluir puntos en el "mar" (simplificación)
-            if (this.isInSea(lon, lat)) {
-              let value;
-              
-              if (layerId === 'temperature') {
-                // Simulación de temperatura del agua
-                // Base: 15-22°C con variación estacional y espacial
-                const basetemp = 18 + 7 * monthOffset; // Más caliente en verano
-                value = basetemp + Math.sin(lat * 8) * 2 + Math.cos(lon * 5) * 1.5;
-                // Ajuste por profundidad
-                value = value - 0.1 * Math.abs(depthValue);
-              } 
-              else if (layerId === 'currents') {
-                // Simulación de corrientes marinas
-                // Base: 0.1-1.0 m/s con patrones variables
-                value = 0.1 + Math.abs(Math.sin(lat * 10 + lon * 8)) * 0.9;
-                // Variación estacional (más fuertes en invierno)
-                value = value * (1.2 - 0.4 * monthOffset);
-              } 
-              else if (layerId === 'nutrients') {
-                // Simulación de concentración de nutrientes
-                // Base: 0.5-4.5 mmol/m³
-                value = 0.5 + Math.abs(Math.cos(lat * 12) * Math.sin(lon * 6)) * 4;
-                // Mayor concentración a mayor profundidad
-                value = value * (1 + 0.05 * Math.abs(depthValue));
-              }
-              
-              points.push({
-                lat: lat,
-                lng: lon,
-                value: value
-              });
-            }
+      // Datos de temperatura simulados para esta demostración
+      const points = [];
+      for (let lat = 37.2; lat <= 40.2; lat += 0.2) {
+        for (let lng = -1.8; lng <= 0.2; lng += 0.2) {
+          // Generar valores más altos cerca de la costa
+          const coastDistance = Math.min(Math.abs(lng + 0.3), 0.8);
+          const intensity = Math.max(0, 0.7 - coastDistance) * 900;
+          if (intensity > 0) {
+            points.push([lat, lng, intensity]);
           }
-        }
-        
-        return points;
-      },
-      
-      isInSea(lon, lat) {
-        // Simplificación: determinar si un punto está en el mar
-        // En un caso real, se usaría un polígono preciso de la costa
-        
-        // Línea costera simplificada (valores aproximados)
-        const coastPoints = [
-          [40.5, 0.5], // Norte de Castellón
-          [39.5, -0.3], // Valencia
-          [39.0, -0.2], // Sur de Valencia
-          [38.5, -0.4], // Alicante Norte
-          [38.1, -0.6], // Alicante
-          [37.6, -0.7]  // Sur de Alicante
-        ];
-        
-        // Si el punto está al este (mayor longitud) de la costa, está en el mar
-        for (let i = 0; i < coastPoints.length - 1; i++) {
-          const [lat1, lon1] = coastPoints[i];
-          const [lat2, lon2] = coastPoints[i + 1];
-          
-          // Si el punto está dentro del rango de latitud de este segmento
-          if (lat >= Math.min(lat1, lat2) && lat <= Math.max(lat1, lat2)) {
-            // Interpolar la longitud de la costa en esta latitud
-            const ratio = (lat - lat1) / (lat2 - lat1);
-            const coastLon = lon1 + ratio * (lon2 - lon1);
-            
-            // Si la longitud del punto es mayor que la costa, está en el mar
-            if (lon > coastLon) return true;
-          }
-        }
-        
-        // Por defecto, considerar que está en el mar si está suficientemente al este
-        return lon > 0;
-      },
-      
-      showTemperatureLayer(data) {
-        // Crear datos para heatmap de temperatura
-        const heatData = data.map(point => [point.lat, point.lng, point.value / 30]); // Normalizar valores
-        
-        // Configuración de colores para temperatura
-        const gradient = {
-          0.0: 'blue',
-          0.3: 'cyan',
-          0.5: 'lime',
-          0.7: 'yellow',
-          1.0: 'red'
-        };
-        
-        // Crear heatmap
-        this.heatmap = L.heatLayer(heatData, {
-          radius: 15,
-          blur: 10,
-          maxZoom: 10,
-          gradient: gradient,
-          minOpacity: 0.6
-        }).addTo(this.map);
-      },
-      
-      showCurrentsLayer(data) {
-        // Para corrientes, mostramos vectores o círculos coloreados
-        const geojsonData = {
-          type: 'FeatureCollection',
-          features: data.map(point => ({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [point.lng, point.lat]
-            },
-            properties: {
-              value: point.value
-            }
-          }))
-        };
-        
-        // Función para estilo según velocidad de corriente
-        const getCircleStyle = (value) => {
-          let color;
-          if (value < 0.3) color = '#0571b0';
-          else if (value < 0.6) color = '#92c5de';
-          else if (value < 0.9) color = '#f7f7f7';
-          else color = '#f4a582';
-          
-          return {
-            radius: 4,
-            fillColor: color,
-            color: "#000",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-          };
-        };
-        
-        // Añadir capa de GeoJSON
-        this.heatmap = L.geoJSON(geojsonData, {
-          pointToLayer: function (feature, latlng) {
-            return L.circleMarker(latlng, getCircleStyle(feature.properties.value));
-          }
-        }).addTo(this.map);
-      },
-      
-      showNutrientsLayer(data) {
-        // Para nutrientes, usamos círculos graduados
-        const geojsonData = {
-          type: 'FeatureCollection',
-          features: data.map(point => ({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [point.lng, point.lat]
-            },
-            properties: {
-              value: point.value
-            }
-          }))
-        };
-        
-        // Función para estilo según concentración
-        const getCircleStyle = (value) => {
-          let color;
-          if (value < 1) color = '#eff3ff';
-          else if (value < 2) color = '#bdd7e7';
-          else if (value < 3) color = '#6baed6';
-          else if (value < 4) color = '#3182bd';
-          else color = '#08519c';
-          
-          return {
-            radius: 4,
-            fillColor: color,
-            color: "#000",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-          };
-        };
-        
-        // Añadir capa de GeoJSON
-        this.heatmap = L.geoJSON(geojsonData, {
-          pointToLayer: function (feature, latlng) {
-            return L.circleMarker(latlng, getCircleStyle(feature.properties.value));
-          }
-        }).addTo(this.map);
-      },
-      
-      getGradientStyle(layerId) {
-        if (layerId === 'temperature') {
-          return 'background: linear-gradient(to right, blue, cyan, lime, yellow, red)';
-        } else if (layerId === 'currents') {
-          return 'background: linear-gradient(to right, #0571b0, #92c5de, #f7f7f7, #f4a582)';
-        } else {
-          return 'background: linear-gradient(to right, #eff3ff, #bdd7e7, #6baed6, #3182bd, #08519c)';
         }
       }
-    }
-  };
-  </script>
-  
-  <style scoped>
-  .map-container {
-    width: 100%;
-    height: 100%;
-    min-height: 400px;
-    position: relative;
+      
+      // Crear capa de calor
+      heatLayer.value = L.heatLayer(points, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 10,
+        gradient: {0.4: 'blue', 0.6: 'cyan', 0.7: 'lime', 0.8: 'yellow', 1.0: 'red'}
+      }).addTo(map.value);
+    };
+    
+    const addCurrentsLayer = () => {
+      // Similar a la capa de temperatura pero con otros colores
+      if (heatLayer.value) {
+        map.value.removeLayer(heatLayer.value);
+      }
+      
+      // Datos simulados para corrientes
+      const points = [];
+      for (let lat = 37.2; lat <= 40.2; lat += 0.2) {
+        for (let lng = -1.8; lng <= 0.2; lng += 0.2) {
+          if (lng < -0.2) { // Más intensidad en mar abierto
+            const intensity = Math.max(0, (-lng - 0.2) * 500);
+            if (intensity > 0) {
+              points.push([lat, lng, intensity]);
+            }
+          }
+        }
+      }
+      
+      heatLayer.value = L.heatLayer(points, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 10,
+        gradient: {0.4: 'green', 0.6: 'yellow', 0.8: 'orange', 1.0: 'red'}
+      }).addTo(map.value);
+    };
+    
+    const addSalinityLayer = () => {
+      // Similar a las anteriores con otros patrones
+      if (heatLayer.value) {
+        map.value.removeLayer(heatLayer.value);
+      }
+      
+      const points = [];
+      for (let lat = 37.2; lat <= 40.2; lat += 0.2) {
+        for (let lng = -1.8; lng <= 0.2; lng += 0.2) {
+          const coastProximity = Math.min(Math.abs(lat - 39), 1) * 700;
+          if (coastProximity > 0) {
+            points.push([lat, lng, coastProximity]);
+          }
+        }
+      }
+      
+      heatLayer.value = L.heatLayer(points, {
+        radius: 25,
+        blur: 15,
+        maxZoom: 10,
+        gradient: {0.4: 'purple', 0.6: 'blue', 0.8: 'cyan', 1.0: 'white'}
+      }).addTo(map.value);
+    };
+
+    // Observar cambios en props para actualizar el mapa
+    watch(() => props.selectedDate, () => {
+      loadEnvironmentalData();
+    });
+    
+    watch(() => props.selectedVariable, () => {
+      loadEnvironmentalData();
+    });
+
+    // Inicializar mapa al montar el componente
+    onMounted(() => {
+      initMap();
+    });
+
+    // Limpiar recursos al desmontar
+    onUnmounted(() => {
+      if (map.value) {
+        map.value.remove();
+      }
+      delete window.selectFishFarm;
+    });
+
+    return {
+      mapContainer,
+      loading,
+      fishFarms
+    };
   }
-  
-  .legend {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    background: white;
-    padding: 10px;
-    border-radius: 4px;
-    z-index: 1000;
-    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
-  }
-  
-  .legend h4 {
-    margin: 0 0 5px 0;
-    font-size: 14px;
-    font-weight: bold;
-  }
-  
-  .gradient {
-    height: 10px;
-    width: 150px;
-    margin-bottom: 5px;
-    border-radius: 2px;
-  }
-  
-  .labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-  }
-  </style>
+};
+</script>
+
+<style scoped>
+.map-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.5);
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #3498db;
+  border-radius: 50%;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Estilos para marcadores */
+:deep(.custom-marker) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+:deep(.marker-icon) {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #3498db;
+  border: 2px solid white;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s;
+}
+
+:deep(.marker-icon:hover) {
+  transform: scale(1.2);
+}
+
+:deep(.popup-content) {
+  padding: 5px;
+  max-width: 250px;
+}
+
+:deep(.popup-content h3) {
+  margin-top: 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+:deep(.popup-btn) {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-top: 5px;
+}
+
+:deep(.popup-btn:hover) {
+  background-color: #2980b9;
+}
+</style>

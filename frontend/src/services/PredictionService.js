@@ -1,60 +1,115 @@
+// frontend/src/services/PredictionService.js
 import axios from 'axios';
 
+// Configuración base para axios específica para predicciones
 const apiClient = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
+  baseURL: import.meta.env.VITE_PREDICTION_API_URL || 'http://localhost:3000/api/predicciones',
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  timeout: 20000 // 20 segundos (las predicciones pueden tardar más)
 });
 
 export default {
-  // Obtener predicciones de riesgo
-  async getPredictions(params) {
-    try {
-      const response = await apiClient.get('/predictions', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Error obteniendo predicciones:', error);
-      throw error;
-    }
+  /**
+   * Obtiene predicciones para una piscifactoría específica
+   * @param {Number} idPiscifactoria - ID de la piscifactoría
+   * @param {Object} parametros - Parámetros adicionales
+   */
+  getPrediccionesPorPiscifactoria(idPiscifactoria, parametros = {}) {
+    return apiClient.get(`/piscifactoria/${idPiscifactoria}`, { params: parametros });
   },
   
-  // Para desarrollo, generamos predicciones simuladas
-  getSimulatedPredictions() {
-    // Ubicaciones de piscifactorías en la Comunidad Valenciana
-    const farms = [
-      { id: 1, name: 'Piscifactoría Sagunto', lat: 39.6766, lon: -0.2026 },
-      { id: 2, name: 'Piscifactoría Burriana', lat: 39.8573, lon: 0.0522 },
-      { id: 3, name: 'Piscifactoría Calpe', lat: 38.6333, lon: 0.0714 },
-      { id: 4, name: 'Piscifactoría Guardamar', lat: 38.1063, lon: -0.6408 }
-    ];
-    
-    // Generar riesgos simulados
-    return farms.map(farm => {
-      // Simular nivel de riesgo basado en un valor aleatorio
-      const riskValue = Math.random();
-      let riskLevel;
-      
-      if (riskValue < 0.6) {
-        riskLevel = 'low';
-      } else if (riskValue < 0.85) {
-        riskLevel = 'medium';
-      } else {
-        riskLevel = 'high';
-      }
-      
-      return {
-        ...farm,
-        risk: riskLevel,
-        riskValue: riskValue,
-        factors: {
-          waterTemperature: 15 + Math.random() * 10,
-          currentSpeed: 0.2 + Math.random() * 0.8,
-          windSpeed: 5 + Math.random() * 15,
-          waveHeight: 0.5 + Math.random() * 2
-        }
-      };
-    });
+  /**
+   * Obtiene una predicción específica por su ID
+   * @param {Number} idPrediccion - ID de la predicción
+   */
+  getPrediccion(idPrediccion) {
+    return apiClient.get(`/${idPrediccion}`);
+  },
+  
+  /**
+   * Obtiene predicciones para una variable ambiental específica
+   * @param {String} variable - Variable ambiental (temperatura, corrientes, etc.)
+   * @param {Object} parametros - Parámetros adicionales
+   */
+  getPrediccionesPorVariable(variable, parametros = {}) {
+    return apiClient.get(`/variable/${variable}`, { params: parametros });
+  },
+  
+  /**
+   * Obtiene predicciones para un rango de fechas
+   * @param {Object} parametros - Parámetros de consulta
+   * @param {String} parametros.fechaInicio - Fecha de inicio en formato YYYY-MM-DD
+   * @param {String} parametros.fechaFin - Fecha de fin en formato YYYY-MM-DD
+   */
+  getPrediccionesPorRangoFechas(parametros) {
+    return apiClient.get('/fecha', { params: parametros });
+  },
+  
+  /**
+   * Obtiene el nivel de riesgo actual para una piscifactoría
+   * @param {Number} idPiscifactoria - ID de la piscifactoría
+   */
+  getNivelRiesgo(idPiscifactoria) {
+    return apiClient.get(`/riesgo/${idPiscifactoria}`);
+  },
+  
+  /**
+   * Obtiene alertas basadas en predicciones
+   * @param {Object} parametros - Parámetros de filtrado
+   */
+  getAlertas(parametros = {}) {
+    return apiClient.get('/alertas', { params: parametros });
+  },
+  
+  /**
+   * Obtiene alertas para una piscifactoría específica
+   * @param {Number} idPiscifactoria - ID de la piscifactoría
+   */
+  getAlertasPorPiscifactoria(idPiscifactoria) {
+    return apiClient.get(`/alertas/piscifactoria/${idPiscifactoria}`);
+  },
+  
+  /**
+   * Genera una nueva predicción bajo demanda
+   * @param {Object} datos - Datos para la predicción
+   */
+  generarPrediccion(datos) {
+    return apiClient.post('/generar', datos);
+  },
+  
+  /**
+   * Evalúa la precisión de predicciones anteriores
+   * @param {Object} parametros - Parámetros de evaluación
+   */
+  evaluarPrecision(parametros) {
+    return apiClient.get('/evaluacion', { params: parametros });
+  },
+  
+  /**
+   * Obtiene tendencias históricas para una variable específica
+   * @param {String} variable - Variable ambiental
+   * @param {Object} parametros - Parámetros adicionales
+   */
+  getTendencias(variable, parametros = {}) {
+    return apiClient.get(`/tendencias/${variable}`, { params: parametros });
+  },
+  
+  /**
+   * Obtiene umbrales de riesgo configurados para las variables
+   */
+  getUmbralesRiesgo() {
+    return apiClient.get('/umbrales');
+  },
+  
+  /**
+   * Actualiza un umbral de riesgo para una variable específica
+   * @param {String} variable - Variable ambiental
+   * @param {Object} datos - Nuevos valores de umbral
+   */
+  actualizarUmbral(variable, datos) {
+    return apiClient.put(`/umbrales/${variable}`, datos);
   }
 };

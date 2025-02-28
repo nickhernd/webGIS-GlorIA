@@ -1,124 +1,103 @@
+// frontend/src/services/DataService.js
 import axios from 'axios';
 
-// Constantes para las URLs de los datos
-const API_BASE_URL = '/api';  // Ajustar según tu configuración de backend
+// Configuración base para axios
+const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  timeout: 10000 // 10 segundos
+});
 
-class DataService {
-  // Obtener lista de capas disponibles
-  async getAvailableLayers() {
-    try {
-      // En un entorno real, esto vendría del backend
-      return [
-        {
-          id: 'temperature',
-          title: 'Temperatura del agua',
-          variable: 'thetao',
-          date: '2025-03-02',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 30,
-          unit: '°C',
-          source: 'cmems_mod_med_phy-cur_anfc_4.2km_P1D-m'
-        },
-        {
-          id: 'currents',
-          title: 'Corrientes marinas',
-          variable: 'uo-vo',
-          date: '2025-03-02',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 1.5,
-          unit: 'm/s',
-          source: 'cmems_mod_med_phy-cur_anfc_4.2km_P1D-m'
-        },
-        {
-          id: 'nutrients',
-          title: 'Nutrientes',
-          variable: 'no3',
-          date: '2025-03-02',
-          depth: '-0.5m',
-          resolution: 'Global daily',
-          min: 0,
-          max: 5,
-          unit: 'mmol/m³',
-          source: 'cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m'
-        }
-      ];
-    } catch (error) {
-      console.error('Error al obtener capas disponibles:', error);
-      return [];
+// Interceptor para manejar errores globalmente
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    console.error('Error en petición API:', error);
+    
+    // Podemos manejar diferentes tipos de errores aquí
+    if (error.response) {
+      // El servidor respondió con un código de estado fuera del rango 2xx
+      console.error('Error de respuesta:', error.response.status, error.response.data);
+    } else if (error.request) {
+      // La petición fue realizada pero no se recibió respuesta
+      console.error('Error de solicitud (sin respuesta):', error.request);
+    } else {
+      // Ocurrió un error al configurar la petición
+      console.error('Error de configuración:', error.message);
     }
+    
+    return Promise.reject(error);
   }
+);
 
-  // Obtener datos GeoJSON para una capa específica
-  async getLayerData(layerId, date, depth) {
-    try {
-      // En producción, esto sería una llamada real a la API
-      // return await axios.get(`${API_BASE_URL}/layers/${layerId}?date=${date}&depth=${depth}`);
-      
-      // Para desarrollo, devolvemos datos simulados
-      return this.getSimulatedData(layerId);
-    } catch (error) {
-      console.error(`Error al obtener datos para la capa ${layerId}:`, error);
-      throw error;
-    }
+export default {
+  // Métodos para piscifactorías
+  getPiscifactorias() {
+    return apiClient.get('/piscifactorias');
+  },
+  
+  getPiscifactoria(id) {
+    return apiClient.get(`/piscifactorias/${id}`);
+  },
+  
+  // Métodos para datos ambientales
+  getDatosAmbientales(parametros) {
+    return apiClient.get('/datos-ambientales', { params: parametros });
+  },
+  
+  getDatosAmbientalesPorFecha(fecha, variable) {
+    return apiClient.get('/datos-ambientales/fecha', { 
+      params: { 
+        fecha: fecha, 
+        variable: variable 
+      } 
+    });
+  },
+  
+  getDatosAmbientalesPorPiscifactoria(idPiscifactoria, parametros) {
+    return apiClient.get(`/datos-ambientales/piscifactoria/${idPiscifactoria}`, {
+      params: parametros
+    });
+  },
+  
+  // Métodos para alertas
+  getAlertas() {
+    return apiClient.get('/alertas');
+  },
+  
+  getAlertasPorPiscifactoria(idPiscifactoria) {
+    return apiClient.get(`/alertas/piscifactoria/${idPiscifactoria}`);
+  },
+  
+  marcarAlertaComoResuelta(idAlerta, datos) {
+    return apiClient.put(`/alertas/${idAlerta}/resolver`, datos);
+  },
+  
+  // Métodos para exportación de datos
+  exportarDatos(parametros) {
+    return apiClient.get('/exportar', { 
+      params: parametros,
+      responseType: 'blob' // Importante para descargar archivos
+    });
+  },
+  
+  // Método genérico para cualquier endpoint de la API
+  get(endpoint, parametros = {}) {
+    return apiClient.get(endpoint, { params: parametros });
+  },
+  
+  post(endpoint, datos = {}) {
+    return apiClient.post(endpoint, datos);
+  },
+  
+  put(endpoint, datos = {}) {
+    return apiClient.put(endpoint, datos);
+  },
+  
+  delete(endpoint) {
+    return apiClient.delete(endpoint);
   }
-
-  // Datos simulados para desarrollo
-  getSimulatedData(layerId) {
-    const valenciaCoast = {
-      type: 'FeatureCollection',
-      features: []
-    };
-
-    // Crear una grid de puntos en la costa valenciana
-    for (let lon = -0.5; lon <= 1.0; lon += 0.1) {
-      for (let lat = 38.0; lat <= 40.5; lat += 0.1) {
-        // Solo incluir puntos que están en el "mar" (simplificado para demo)
-        if (this.isInSea(lon, lat)) {
-          let value;
-          
-          if (layerId === 'temperature') {
-            // Valores de temperatura que varían según la localización
-            value = 15 + Math.sin(lat * 10) * 3 + Math.cos(lon * 5) * 2;
-          } else if (layerId === 'currents') {
-            // Velocidad de corrientes
-            value = 0.2 + Math.sin(lat * 8) * 0.15 + Math.cos(lon * 6) * 0.1;
-          } else {
-            // Nutrientes u otros
-            value = 1 + Math.sin(lat * 12) * 0.8 + Math.cos(lon * 7) * 0.5;
-          }
-
-          valenciaCoast.features.push({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [lon, lat]
-            },
-            properties: {
-              value: value
-            }
-          });
-        }
-      }
-    }
-
-    return valenciaCoast;
-  }
-
-  // Función simplificada para determinar si un punto está en el "mar"
-  isInSea(lon, lat) {
-    // Simplificación: suponemos que puntos al este de cierta línea están en el mar
-    // En un caso real, usaríamos polígonos o datos más precisos
-    return true; // Para desarrollo, todos los puntos están "en el mar"
-  }
-
-  // Convertir fechas al formato requerido
-  formatDate(date) {
-    return new Date(date).toISOString().split('T')[0];
-  }
-}
-
-export default new DataService();
+};
