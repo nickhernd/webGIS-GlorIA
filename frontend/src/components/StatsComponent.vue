@@ -1,4 +1,3 @@
-<!-- frontend/src/components/StatsComponent.vue -->
 <template>
   <div class="stats-dashboard">
     <div class="stats-header">
@@ -27,37 +26,42 @@
       <!-- Panel de resumen -->
       <div v-if="activeTab === 'summary'" class="tab-pane">
         <div class="indicators-grid">
-          <div class="indicator" v-for="(indicator, index) in keyIndicators" :key="index">
+          <div class="indicator" v-for="(indicator, key) in indicators" :key="key">
             <div class="indicator-title">{{ indicator.name }}</div>
-            <div class="indicator-value" :class="getValueClass(indicator)">
+            <div class="indicator-value" :class="indicator.status + '-value'">
               {{ indicator.value }}{{ indicator.unit }}
             </div>
             <div class="indicator-trend">
               <span :class="indicator.trend === 'up' ? 'trend-up' : indicator.trend === 'down' ? 'trend-down' : ''">
                 {{ indicator.trend === 'up' ? '↑' : indicator.trend === 'down' ? '↓' : '→' }}
-                {{ indicator.trendValue }}{{ indicator.unit }}
+                {{ indicator.min }} - {{ indicator.max }}{{ indicator.unit }}
               </span>
             </div>
           </div>
         </div>
         
-        <!-- Gráfico principal -->
+        <!-- Gráfico principal (simulado) -->
         <div class="main-chart-section">
           <h3>Serie Temporal - {{ getVariableName(selectedVariable) }}</h3>
-          <div ref="mainChartContainer" class="chart-container"></div>
+          <div class="chart-container">
+            <div class="chart-placeholder">
+              <div class="chart-line" :class="selectedVariable"></div>
+            </div>
+          </div>
           <div class="chart-controls">
             <div class="chart-control-item">
               <label for="variable-select">Variable:</label>
-              <select id="variable-select" v-model="selectedVariable" @change="updateMainChart">
+              <select id="variable-select" v-model="selectedVariable" @change="updateChart">
                 <option value="temperature">Temperatura</option>
                 <option value="oxygen">Oxígeno Disuelto</option>
                 <option value="currents">Corrientes</option>
                 <option value="salinity">Salinidad</option>
+                <option value="nutrientes">Nutrientes</option>
               </select>
             </div>
             <div class="chart-control-item">
               <label for="timeframe-select">Período:</label>
-              <select id="timeframe-select" v-model="selectedTimeframe" @change="updateMainChart">
+              <select id="timeframe-select" v-model="selectedTimeframe" @change="updateChart">
                 <option value="day">Últimas 24h</option>
                 <option value="week">Última semana</option>
                 <option value="month">Último mes</option>
@@ -70,18 +74,21 @@
         <!-- Resumen de alertas -->
         <div class="alerts-summary-section">
           <h3>Resumen de Alertas</h3>
-          <div class="alerts-boxes">
-            <div class="alert-box high">
-              <div class="alert-count">{{ alertsCount.high }}</div>
-              <div class="alert-label">Alta Prioridad</div>
-            </div>
-            <div class="alert-box medium">
-              <div class="alert-count">{{ alertsCount.medium }}</div>
-              <div class="alert-label">Media Prioridad</div>
-            </div>
-            <div class="alert-box low">
-              <div class="alert-count">{{ alertsCount.low }}</div>
-              <div class="alert-label">Baja Prioridad</div>
+          <div v-if="alerts.length === 0" class="no-alerts">
+            No hay alertas activas para esta piscifactoría.
+          </div>
+          <div v-else class="alerts-list">
+            <div v-for="(alert, index) in alerts" :key="index" 
+                class="alert-item" 
+                :class="alert.level">
+              <div class="alert-title">
+                <span class="alert-icon">
+                  {{ alert.level === 'alta' ? '⚠️' : alert.level === 'media' ? '⚠' : 'ℹ️' }}
+                </span>
+                {{ alert.title }}
+              </div>
+              <div class="alert-message">{{ alert.message }}</div>
+              <div class="alert-time">{{ alert.time }}</div>
             </div>
           </div>
         </div>
@@ -96,13 +103,11 @@
           </div>
           <div v-for="(alert, index) in alerts" :key="index" 
                class="alert-item-detailed" 
-               :class="{ 'high': alert.level === 'alta', 'medium': alert.level === 'media', 'low': alert.level === 'baja' }">
+               :class="alert.level">
             <div class="alert-header">
               <div class="alert-title">
                 <span class="alert-icon">
-                  <span v-if="alert.level === 'alta'">⚠️</span>
-                  <span v-else-if="alert.level === 'media'">⚠</span>
-                  <span v-else>ℹ️</span>
+                  {{ alert.level === 'alta' ? '⚠️' : alert.level === 'media' ? '⚠' : 'ℹ️' }}
                 </span>
                 {{ alert.title }}
               </div>
@@ -121,9 +126,14 @@
       <div v-if="activeTab === 'predictions'" class="tab-pane">
         <h3>Predicciones y Análisis</h3>
         
-        <!-- Gráfico de predicción -->
+        <!-- Gráfico de predicción (simulado) -->
         <div class="prediction-chart-section">
-          <div ref="predictionChartContainer" class="prediction-chart-container"></div>
+          <div class="prediction-chart-container">
+            <div class="chart-placeholder">
+              <div class="chart-line prediction-line"></div>
+              <div class="prediction-threshold"></div>
+            </div>
+          </div>
           <div class="chart-legend">
             <div class="legend-item">
               <span class="color-box" style="background-color: #3498db;"></span>
@@ -147,7 +157,7 @@
               <span class="prediction-title">{{ prediction.title }}</span>
               <span class="prediction-time">{{ prediction.timeframe }}</span>
             </div>
-            <div class="prediction-value" :class="getPredictionClass(prediction)">
+            <div class="prediction-value" :class="prediction.status + '-value'">
               {{ prediction.value }}{{ prediction.unit }}
             </div>
             <div class="prediction-confidence">
@@ -165,95 +175,32 @@
         <h3>Datos Ambientales</h3>
         
         <div class="environment-grid">
-          <div class="env-panel">
-            <h4>Temperatura del Agua</h4>
-            <div ref="tempGaugeContainer" class="gauge-container"></div>
+          <div class="env-panel" v-for="(data, key) in environmentalData" :key="key">
+            <h4>{{ getVariableName(key) }}</h4>
+            <div class="gauge-container">
+              <div class="gauge">
+                <div class="gauge-fill" :style="{
+                  transform: `rotate(${calculateRotation(data.current, data.min, data.max)}deg)`,
+                  backgroundColor: getStatusColor(data.status)
+                }"></div>
+                <div class="gauge-center">
+                  <div class="gauge-value">{{ data.current }}{{ data.unit }}</div>
+                </div>
+              </div>
+            </div>
             <div class="env-stats">
               <div class="env-stat">
                 <span class="label">Min:</span>
-                <span class="value">21.2 °C</span>
+                <span class="value">{{ data.min }}{{ data.unit }}</span>
               </div>
               <div class="env-stat">
                 <span class="label">Promedio:</span>
-                <span class="value">22.4 °C</span>
+                <span class="value">{{ data.avg }}{{ data.unit }}</span>
               </div>
               <div class="env-stat">
                 <span class="label">Max:</span>
-                <span class="value">23.8 °C</span>
+                <span class="value">{{ data.max }}{{ data.unit }}</span>
               </div>
-            </div>
-          </div>
-          
-          <div class="env-panel">
-            <h4>Oxígeno Disuelto</h4>
-            <div ref="oxygenGaugeContainer" class="gauge-container"></div>
-            <div class="env-stats">
-              <div class="env-stat">
-                <span class="label">Min:</span>
-                <span class="value">5.2 mg/L</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Promedio:</span>
-                <span class="value">5.8 mg/L</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Max:</span>
-                <span class="value">6.5 mg/L</span>
-              </div>
-            </div>
-          </div>
-          
-          <div class="env-panel">
-            <h4>Corrientes</h4>
-            <div ref="currentsGaugeContainer" class="gauge-container"></div>
-            <div class="env-stats">
-              <div class="env-stat">
-                <span class="label">Min:</span>
-                <span class="value">0.12 m/s</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Promedio:</span>
-                <span class="value">0.35 m/s</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Max:</span>
-                <span class="value">0.58 m/s</span>
-              </div>
-            </div>
-          </div>
-          
-          <div class="env-panel">
-            <h4>Salinidad</h4>
-            <div ref="salinityGaugeContainer" class="gauge-container"></div>
-            <div class="env-stats">
-              <div class="env-stat">
-                <span class="label">Min:</span>
-                <span class="value">35.8 ppt</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Promedio:</span>
-                <span class="value">36.2 ppt</span>
-              </div>
-              <div class="env-stat">
-                <span class="label">Max:</span>
-                <span class="value">36.7 ppt</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="historical-data-section">
-          <h4>Tendencias Históricas</h4>
-          <div ref="historicalChartContainer" class="historical-chart-container"></div>
-          <div class="chart-controls">
-            <div class="chart-control-item">
-              <label for="historical-variable">Variable:</label>
-              <select id="historical-variable" v-model="historicalVariable" @change="updateHistoricalChart">
-                <option value="temperature">Temperatura</option>
-                <option value="oxygen">Oxígeno Disuelto</option>
-                <option value="currents">Corrientes</option>
-                <option value="salinity">Salinidad</option>
-              </select>
             </div>
           </div>
         </div>
@@ -303,9 +250,7 @@
 </template>
 
 <script>
-import { ref, onMounted, watch, computed } from 'vue';
-import { useStore } from 'vuex';
-import * as d3 from 'd3';
+import { ref, computed, onMounted, watch } from 'vue';
 
 export default {
   name: 'StatsComponent',
@@ -315,9 +260,9 @@ export default {
       type: Number,
       default: null
     },
-    fishFarms: {
-      type: Array,
-      default: () => []
+    selectedFarm: {
+      type: Object,
+      default: null
     },
     date: {
       type: Date,
@@ -326,19 +271,9 @@ export default {
   },
   
   setup(props, { emit }) {
-    // Referencias para gráficos
-    const mainChartContainer = ref(null);
-    const predictionChartContainer = ref(null);
-    const tempGaugeContainer = ref(null);
-    const oxygenGaugeContainer = ref(null);
-    const currentsGaugeContainer = ref(null);
-    const salinityGaugeContainer = ref(null);
-    const historicalChartContainer = ref(null);
-    
     // Variables de estado
     const selectedVariable = ref('temperature');
     const selectedTimeframe = ref('week');
-    const historicalVariable = ref('temperature');
     const activeTab = ref('summary');
     
     // Pestañas disponibles
@@ -350,83 +285,79 @@ export default {
       { id: 'infrastructure', name: 'Infraestructura' }
     ];
     
-    // Información de la piscifactoría seleccionada
-    const selectedFarm = computed(() => {
-      if (!props.selectedFarmId) return null;
-      return props.fishFarms.find(farm => farm.id === props.selectedFarmId);
+    // Indicadores clave calculados a partir de la piscifactoría seleccionada
+    const indicators = computed(() => {
+      if (!props.selectedFarm || !props.selectedFarm.stats) {
+        return defaultIndicators;
+      }
+      
+      const stats = props.selectedFarm.stats;
+      const result = {};
+      
+      // Convertir los datos de stats en el formato para los indicadores
+      Object.keys(stats).forEach(key => {
+        const data = stats[key];
+        result[key] = {
+          name: getVariableName(key),
+          value: data.current,
+          unit: getUnitByVariable(key),
+          trend: data.trend,
+          status: data.status,
+          min: data.min,
+          max: data.max
+        };
+      });
+      
+      return result;
     });
     
-    // Indicadores clave simulados
-    const keyIndicators = ref([
-      {
+    // Datos por defecto para indicadores
+    const defaultIndicators = {
+      temperature: {
         name: 'Temperatura',
         value: '22.4',
         unit: '°C',
         trend: 'up',
-        trendValue: '0.8',
-        threshold: { min: 18, max: 26 },
-        status: 'normal'
+        status: 'normal',
+        min: 21.2,
+        max: 23.8
       },
-      {
+      oxygen: {
         name: 'Oxígeno Disuelto',
         value: '5.8',
         unit: 'mg/L',
         trend: 'down',
-        trendValue: '0.3',
-        threshold: { min: 5, max: 12 },
-        status: 'warning'
+        status: 'warning',
+        min: 5.2,
+        max: 6.5
       },
-      {
+      salinity: {
+        name: 'Salinidad',
+        value: '36.2',
+        unit: 'ppt',
+        trend: 'stable',
+        status: 'normal',
+        min: 35.8,
+        max: 36.7
+      },
+      currents: {
         name: 'Corrientes',
         value: '0.35',
         unit: 'm/s',
         trend: 'stable',
-        trendValue: '0.02',
-        threshold: { min: 0, max: 0.8 },
-        status: 'normal'
-      },
-      {
-        name: 'Salinidad',
-        value: '36.2',
-        unit: 'ppt',
-        trend: 'up',
-        trendValue: '0.5',
-        threshold: { min: 34, max: 38 },
-        status: 'normal'
+        status: 'normal',
+        min: 0.12,
+        max: 0.58
       }
-    ]);
+    };
     
-    // Alertas simuladas
-    const alerts = ref([
-      {
-        title: 'Nivel de oxígeno bajo',
-        message: 'El nivel de oxígeno disuelto está por debajo del umbral óptimo. Se recomienda revisar sistemas de aireación.',
-        level: 'media',
-        time: 'Hace 35 minutos'
-      },
-      {
-        title: 'Predicción de temporal',
-        message: 'Se prevén fuertes vientos y oleaje para los próximos 2 días. Reforzar sistemas de anclaje.',
-        level: 'alta',
-        time: 'Hace 2 horas'
-      },
-      {
-        title: 'Mantenimiento programado',
-        message: 'Inspección rutinaria de redes programada para mañana a las 10:00h.',
-        level: 'baja',
-        time: 'Hace 5 horas'
+    // Alertas de la piscifactoría seleccionada
+    const alerts = computed(() => {
+      if (!props.selectedFarm || !props.selectedFarm.alerts) {
+        return [];
       }
-    ]);
-    
-    // Conteo de alertas por nivel
-    const alertsCount = computed(() => {
-      const count = { high: 0, medium: 0, low: 0 };
-      alerts.value.forEach(alert => {
-        if (alert.level === 'alta') count.high++;
-        else if (alert.level === 'media') count.medium++;
-        else count.low++;
-      });
-      return count;
+      
+      return props.selectedFarm.alerts;
     });
     
     // Predicciones simuladas
@@ -457,8 +388,78 @@ export default {
       }
     ]);
     
+    // Datos ambientales para gráficos y medidores
+    const environmentalData = computed(() => {
+      if (!props.selectedFarm || !props.selectedFarm.stats) {
+        return defaultEnvironmentalData;
+      }
+      
+      const stats = props.selectedFarm.stats;
+      const result = {};
+      
+      // Convertir los datos de stats en el formato para los datos ambientales
+      Object.keys(stats).forEach(key => {
+        const data = stats[key];
+        result[key] = {
+          current: data.current,
+          min: data.min,
+          max: data.max,
+          avg: data.avg,
+          status: data.status,
+          unit: getUnitByVariable(key)
+        };
+      });
+      
+      return result;
+    });
+    
+    // Datos ambientales por defecto
+    const defaultEnvironmentalData = {
+      temperature: {
+        current: 22.4,
+        min: 21.2,
+        max: 23.8,
+        avg: 22.6,
+        status: 'normal',
+        unit: '°C'
+      },
+      oxygen: {
+        current: 5.8,
+        min: 5.2,
+        max: 6.5,
+        avg: 5.9,
+        status: 'warning',
+        unit: 'mg/L'
+      },
+      salinity: {
+        current: 36.2,
+        min: 35.8,
+        max: 36.7,
+        avg: 36.3,
+        status: 'normal',
+        unit: 'ppt'
+      },
+      currents: {
+        current: 0.35,
+        min: 0.12,
+        max: 0.58,
+        avg: 0.34,
+        status: 'normal',
+        unit: 'm/s'
+      }
+    };
+    
     // Items de infraestructura
-    const infrastructureItems = ref([
+    const infrastructureItems = computed(() => {
+      if (!props.selectedFarm || !props.selectedFarm.infrastructure || !props.selectedFarm.infrastructure.components) {
+        return defaultInfrastructureItems;
+      }
+      
+      return props.selectedFarm.infrastructure.components;
+    });
+    
+    // Items de infraestructura por defecto
+    const defaultInfrastructureItems = [
       {
         name: 'Sistema de Jaulas',
         status: 'good',
@@ -486,15 +487,8 @@ export default {
         lastCheck: '18/02/2025',
         nextCheck: '18/03/2025',
         statusText: 'Óptimo'
-      },
-      {
-        name: 'Sistemas de Alimentación',
-        status: 'danger',
-        lastCheck: '05/02/2025',
-        nextCheck: '05/03/2025',
-        statusText: 'Requiere mantenimiento urgente'
       }
-    ]);
+    ];
     
     // Tareas de mantenimiento
     const maintenanceTasks = ref([
@@ -528,670 +522,840 @@ export default {
       }
     ]);
     
-    // Métodos para clases CSS condicionales
-    const getValueClass = (indicator) => {
-      if (indicator.status === 'warning') return 'warning-value';
-      if (indicator.status === 'danger') return 'danger-value';
-      return 'normal-value';
+    // Métodos
+    
+    // Actualizar el gráfico
+    const updateChart = () => {
+      emit('variable-changed', selectedVariable.value);
     };
     
-    const getPredictionClass = (prediction) => {
-      if (prediction.status === 'warning') return 'warning-value';
-      if (prediction.status === 'danger') return 'danger-value';
-      return 'normal-value';
+    // Calcular la rotación para el medidor
+    const calculateRotation = (value, min, max) => {
+      const range = max - min;
+      const normalized = (value - min) / range;
+      const degrees = -90 + (normalized * 180); // -90 a 90 grados
+      
+      return Math.min(90, Math.max(-90, degrees));
     };
     
-    // Métodos para el gráfico principal
-    const createMainChart = () => {
-      if (!mainChartContainer.value) return;
-      
-      // Limpiar gráfico anterior si existe
-      d3.select(mainChartContainer.value).selectAll("*").remove();
-      
-      // Dimensiones
-      const margin = {top: 20, right: 30, bottom: 40, left: 50};
-      const width = mainChartContainer.value.clientWidth - margin.left - margin.right;
-      const height = 280 - margin.top - margin.bottom;
-      
-      // Datos simulados para diferentes variables y timeframes
-      const data = generateChartData();
-      
-      // Crear SVG
-      const svg = d3.select(mainChartContainer.value)
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-        
-      // Escalas
-      const x = d3.scaleTime()
-        .domain(d3.extent(data, d => d.date))
-        .range([0, width]);
-        
-      const y = d3.scaleLinear()
-        .domain([0, d3.max(data, d => d.value) * 1.1])
-        .range([height, 0]);
-        
-      // Ejes
-      svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x));
-        
-      svg.append("g")
-        .call(d3.axisLeft(y));
-        
-      // Línea
-      const line = d3.line()
-        .x(d => x(d.date))
-        .y(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-        
-      svg.append("path")
-        .datum(data)
-        .attr("fill", "none")
-        .attr("stroke", "#3498db")
-        .attr("stroke-width", 2)
-        .attr("d", line);
-        
-      // Puntos
-      svg.selectAll(".dot")
-        .data(data)
-        .enter().append("circle")
-        .attr("class", "dot")
-        .attr("cx", d => x(d.date))
-        .attr("cy", d => y(d.value))
-        .attr("r", 4)
-        .attr("fill", "#3498db");
-        
-      // Tooltip
-      const tooltip = d3.select(mainChartContainer.value)
-        .append("div")
-        .style("position", "absolute")
-        .style("visibility", "hidden")
-        .style("background", "white")
-        .style("border", "1px solid #ddd")
-        .style("border-radius", "3px")
-        .style("padding", "5px")
-        .style("pointer-events", "none");
-        
-      svg.selectAll(".dot")
-        .on("mouseover", function(event, d) {
-          d3.select(this).attr("r", 6);
-          tooltip
-            .style("visibility", "visible")
-            .html(`<strong>${d3.timeFormat("%d/%m/%Y %H:%M")(d.date)}</strong><br>${d.value}${getUnitByVariable(selectedVariable.value)}`);
-        })
-        .on("mousemove", function(event) {
-          tooltip
-            .style("top", (event.pageY - 10) + "px")
-            .style("left", (event.pageX + 10) + "px");
-        })
-        .on("mouseout", function() {
-          d3.select(this).attr("r", 4);
-          tooltip.style("visibility", "hidden");
-        });
-    };
-    
-    // Crear gráfico de predicción
-    const createPredictionChart = () => {
-      if (!predictionChartContainer.value) return;
-      
-      // Limpiar gráfico anterior si existe
-      d3.select(predictionChartContainer.value).selectAll("*").remove();
-      
-      // Dimensiones
-      const margin = {top: 20, right: 30, bottom: 40, left: 50};
-      const width = predictionChartContainer.value.clientWidth - margin.left - margin.right;
-      const height = 280 - margin.top - margin.bottom;
-      
-      // Datos históricos y de predicción
-      const historicalData = generateChartData().slice(-10);
-      const now = new Date();
-      
-      // Generar datos de predicción (5 días futuros)
-      const predictionData = [];
-      for (let i = 1; i <= 5; i++) {
-        const date = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-        
-        // Valor con tendencia ascendente y algo de ruido
-        const baseValue = parseFloat(historicalData[historicalData.length - 1].value);
-        const trend = i * 0.2;
-        const noise = (Math.random() - 0.5) * 0.3;
-        
-        const value = baseValue + trend + noise;
-        
-        predictionData.push({
-          date,
-          value: Math.max(0, value) // Asegurar valores no negativos
-        });
-      }
-      
-      // Crear SVG
-      const svg = d3.select(predictionChartContainer.value)
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-        
-      // Escalas
-      const x = d3.scaleTime()
-        .domain([
-          d3.min(historicalData, d => d.date),
-          d3.max(predictionData, d => d.date)
-        ])
-        .range([0, width]);
-        
-      const y = d3.scaleLinear()
-        .domain([
-          0,
-          d3.max([...historicalData, ...predictionData], d => d.value) * 1.2
-        ])
-        .range([height, 0]);
-        
-      // Ejes
-      svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x));
-        
-      svg.append("g")
-        .call(d3.axisLeft(y));
-        
-      // Línea para datos históricos
-      const historicalLine = d3.line()
-        .x(d => x(d.date))
-        .y(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-        
-      svg.append("path")
-        .datum(historicalData)
-        .attr("fill", "none")
-        .attr("stroke", "#3498db")
-        .attr("stroke-width", 2)
-        .attr("d", historicalLine);
-      
-      // Línea para predicción
-      const predictionLine = d3.line()
-        .x(d => x(d.date))
-        .y(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-        
-      svg.append("path")
-        .datum(predictionData)
-        .attr("fill", "none")
-        .attr("stroke", "#f39c12")
-        .attr("stroke-width", 2)
-        .attr("stroke-dasharray", "5,5")
-        .attr("d", predictionLine);
-        
-      // Línea de umbral
-      const thresholdValue = getThresholdByVariable();
-      
-      svg.append("line")
-        .attr("x1", 0)
-        .attr("y1", y(thresholdValue))
-        .attr("x2", width)
-        .attr("y2", y(thresholdValue))
-        .attr("stroke", "#e74c3c")
-        .attr("stroke-width", 1.5)
-        .attr("stroke-dasharray", "5,5");
-      
-      // Puntos históricos
-      svg.selectAll(".historical-dot")
-        .data(historicalData)
-        .enter().append("circle")
-        .attr("class", "historical-dot")
-        .attr("cx", d => x(d.date))
-        .attr("cy", d => y(d.value))
-        .attr("r", 4)
-        .attr("fill", "#3498db");
-        
-      // Puntos de predicción
-      svg.selectAll(".prediction-dot")
-        .data(predictionData)
-        .enter().append("circle")
-        .attr("class", "prediction-dot")
-        .attr("cx", d => x(d.date))
-        .attr("cy", d => y(d.value))
-        .attr("r", 4)
-        .attr("fill", "#f39c12");
-        
-      // Añadir etiqueta para el umbral
-      svg.append("text")
-        .attr("x", width)
-        .attr("y", y(thresholdValue) - 5)
-        .attr("text-anchor", "end")
-        .attr("font-size", "12px")
-        .attr("fill", "#e74c3c")
-        .text(`Umbral: ${thresholdValue}${getUnitByVariable(selectedVariable.value)}`);
-    };
-    
-    // Crear medidores para variables ambientales
-    const createGauges = () => {
-      createGauge(tempGaugeContainer.value, 22.4, [18, 26], '°C', 'temperature');
-      createGauge(oxygenGaugeContainer.value, 5.8, [5, 12], 'mg/L', 'oxygen');
-      createGauge(currentsGaugeContainer.value, 0.35, [0, 0.8], 'm/s', 'currents');
-      createGauge(salinityGaugeContainer.value, 36.2, [34, 38], 'ppt', 'salinity');
-    };
-    
-    const createGauge = (container, value, range, unit, type) => {
-      if (!container) return;
-      
-      // Limpiar contenedor
-      d3.select(container).selectAll("*").remove();
-      
-      // Dimensiones
-      const width = container.clientWidth;
-      const height = 150;
-      const radius = Math.min(width, height) / 2 * 0.8;
-      
-      // Crear SVG
-      const svg = d3.select(container)
-        .append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .append("g")
-        .attr("transform", `translate(${width / 2}, ${height / 2})`);
-      
-      // Escala para el medidor
-      const scale = d3.scaleLinear()
-        .domain([0, range[1] * 1.2])
-        .range([-Math.PI * 0.75, Math.PI * 0.75]);
-      
-      // Arco de fondo
-      const backgroundArc = d3.arc()
-        .innerRadius(radius * 0.7)
-        .outerRadius(radius)
-        .startAngle(-Math.PI * 0.75)
-        .endAngle(Math.PI * 0.75);
-      
-      svg.append("path")
-        .attr("d", backgroundArc)
-        .style("fill", "#ecf0f1");
-      
-      // Determinar color según el valor
-      let color = "#2ecc71"; // Normal (verde)
-      if (value < range[0]) {
-        color = "#e74c3c"; // Bajo el umbral (rojo)
-      } else if (value > range[1]) {
-        color = "#e74c3c"; // Sobre el umbral (rojo)
-      } else if (value < range[0] * 1.1 || value > range[1] * 0.9) {
-        color = "#f39c12"; // Cerca del umbral (amarillo)
-      }
-      
-      // Arco del valor
-      const valueArc = d3.arc()
-        .innerRadius(radius * 0.7)
-        .outerRadius(radius)
-        .startAngle(-Math.PI * 0.75)
-        .endAngle(scale(value));
-      
-      svg.append("path")
-        .attr("d", valueArc)
-        .style("fill", color);
-      
-      // Texto del valor
-      svg.append("text")
-        .attr("text-anchor", "middle")
-        .attr("dy", "0.3em")
-        .style("font-size", "24px")
-        .style("font-weight", "bold")
-        .style("fill", color)
-        .text(value);
-      
-      // Unidad
-      svg.append("text")
-        .attr("text-anchor", "middle")
-        .attr("dy", "2em")
-        .style("font-size", "12px")
-        .text(unit);
-      
-      // Marcas de umbral
-      // Umbral mínimo
-      const minAngle = scale(range[0]);
-      svg.append("line")
-        .attr("x1", (radius + 10) * Math.cos(minAngle))
-        .attr("y1", (radius + 10) * Math.sin(minAngle))
-        .attr("x2", (radius - 10) * Math.cos(minAngle))
-        .attr("y2", (radius - 10) * Math.sin(minAngle))
-        .style("stroke", "#e74c3c")
-        .style("stroke-width", 2);
-      
-      // Umbral máximo
-      const maxAngle = scale(range[1]);
-      svg.append("line")
-        .attr("x1", (radius + 10) * Math.cos(maxAngle))
-        .attr("y1", (radius + 10) * Math.sin(maxAngle))
-        .attr("x2", (radius - 10) * Math.cos(maxAngle))
-        .attr("y2", (radius - 10) * Math.sin(maxAngle))
-        .style("stroke", "#e74c3c")
-        .style("stroke-width", 2);
-    };
-    
-    // Crear gráfico histórico
-    const createHistoricalChart = () => {
-      if (!historicalChartContainer.value) return;
-      
-      // Limpiar gráfico anterior
-      d3.select(historicalChartContainer.value).selectAll("*").remove();
-      
-      // Dimensiones
-      const margin = {top: 20, right: 30, bottom: 40, left: 50};
-      const width = historicalChartContainer.value.clientWidth - margin.left - margin.right;
-      const height = 300 - margin.top - margin.bottom;
-      
-      // Datos históricos simulados por mes
-      const monthlyData = generateMonthlyData();
-      
-      // Crear SVG
-      const svg = d3.select(historicalChartContainer.value)
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-        
-      // Escalas
-      const x = d3.scaleBand()
-        .domain(monthlyData.map(d => d.month))
-        .range([0, width])
-        .padding(0.1);
-        
-      const y = d3.scaleLinear()
-        .domain([0, d3.max(monthlyData, d => d.value) * 1.1])
-        .range([height, 0]);
-        
-      // Ejes
-      svg.append("g")
-        .attr("transform", `translate(0,${height})`)
-        .call(d3.axisBottom(x));
-        
-      svg.append("g")
-        .call(d3.axisLeft(y));
-      
-      // Barras
-      svg.selectAll(".bar")
-        .data(monthlyData)
-        .enter().append("rect")
-        .attr("class", "bar")
-        .attr("x", d => x(d.month))
-        .attr("y", d => y(d.value))
-        .attr("width", x.bandwidth())
-        .attr("height", d => height - y(d.value))
-        .attr("fill", "#3498db");
-      
-      // Línea de tendencia
-      const lineData = monthlyData.map(d => ({
-        month: d.month,
-        value: d.trend
-      }));
-      
-      const line = d3.line()
-        .x(d => x(d.month) + x.bandwidth() / 2)
-        .y(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-        
-      svg.append("path")
-        .datum(lineData)
-        .attr("fill", "none")
-        .attr("stroke", "#e74c3c")
-        .attr("stroke-width", 2)
-        .attr("d", line);
-      
-      // Título
-      svg.append("text")
-        .attr("x", width / 2)
-        .attr("y", 0 - (margin.top / 2))
-        .attr("text-anchor", "middle")
-        .style("font-size", "14px")
-        .text(`${getVariableName(historicalVariable.value)} - Promedio Mensual`);
-    };
-    
-    // Función para actualizar todos los gráficos
-    const updateCharts = () => {
-      createMainChart();
-      if (activeTab.value === 'predictions') {
-        createPredictionChart();
-      } else if (activeTab.value === 'environment') {
-        createGauges();
-        createHistoricalChart();
+    // Obtener el color basado en el estado
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'danger': return '#e74c3c';
+        case 'warning': return '#f39c12';
+        default: return '#2ecc71';
       }
     };
     
-    // Actualizar datos cuando cambia la piscifactoría seleccionada
-    watch(() => props.selectedFarmId, () => {
-      // Simular actualización de datos para la nueva piscifactoría
-      if (props.selectedFarmId) {
-        // Actualizar indicadores
-        keyIndicators.value = keyIndicators.value.map(indicator => {
-          // Variar ligeramente los valores según la granja
-          const variationFactor = (props.selectedFarmId % 3 + 1) * 0.1;
-          const baseValue = parseFloat(indicator.value);
-          const newValue = (baseValue * (1 + variationFactor * (Math.random() - 0.5))).toFixed(1);
-          
-          return {
-            ...indicator,
-            value: newValue,
-          };
-        });
+    // Función auxiliar para obtener nombre legible de variables
+    const getVariableName = (variableKey) => {
+      const names = {
+        'temperature': 'Temperatura',
+        'oxygen': 'Oxígeno disuelto',
+        'salinity': 'Salinidad',
+        'currents': 'Corrientes',
+        'nutrientes': 'Nutrientes'
+      };
+      return names[variableKey] || variableKey;
+    };
+    
+    // Función auxiliar para obtener unidades según la variable
+    const getUnitByVariable = (variable) => {
+      const units = {
+        'temperature': '°C',
+        'oxygen': 'mg/L',
+        'salinity': 'ppt',
+        'currents': 'm/s',
+        'nutrientes': 'mg/L'
+      };
+      return units[variable] || '';
+    };
+    
+    // Actualizar la pestaña activa si es la primera vez que se selecciona una piscifactoría
+    watch(() => props.selectedFarmId, (newVal, oldVal) => {
+      if (newVal && !oldVal) {
+        activeTab.value = 'summary';
+      }
+    });
+    
+    // Actualizar las predicciones según la piscifactoría seleccionada
+    watch(() => props.selectedFarm, (newFarm) => {
+      if (newFarm) {
+        // Ajustar predicciones según la piscifactoría
+        // Este es solo un ejemplo de cómo podrías personalizar datos según la piscifactoría seleccionada
         
-        // Actualizar alertas (más o menos según el ID)
-        if (props.selectedFarmId % 2 === 0) {
-          // Añadir una alerta específica para granjas pares
-          alerts.value.unshift({
-            title: 'Mantenimiento de equipos',
-            message: `Se requiere revisión de equipos en ${selectedFarm.value.name}`,
-            level: 'baja',
-            time: 'Hace 1 día'
-          });
+        if (newFarm.id % 2 === 0) {
+          predictions.value[0].value = '24.2';
+          predictions.value[0].status = 'warning';
         } else {
-          // Eliminar una alerta para granjas impares
-          if (alerts.value.length > 1) {
-            alerts.value.pop();
-          }
+          predictions.value[0].value = '23.8';
+          predictions.value[0].status = 'normal';
         }
         
-        // Actualizar todos los gráficos
-        updateCharts();
+        if (newFarm.id === 4 || newFarm.id === 5) {
+          predictions.value[1].value = '0.8';
+          predictions.value[1].status = 'danger';
+          predictions.value[1].confidence = 90;
+        } else {
+          predictions.value[1].value = '0.7';
+          predictions.value[1].status = 'warning';
+          predictions.value[1].confidence = 85;
+        }
       }
     });
     
-    // Watch para cambios de pestañas
-    watch(activeTab, (newTab) => {
-      // Actualizar gráficos según la pestaña activa
-      setTimeout(() => {
-        if (newTab === 'summary') {
-          createMainChart();
-        } else if (newTab === 'predictions') {
-          createPredictionChart();
-        } else if (newTab === 'environment') {
-          createGauges();
-          createHistoricalChart();
-        }
-      }, 50); // Pequeño delay para asegurar que los contenedores estén disponibles
-    });
-    
-    // Eventos del ciclo de vida
+    // Ciclo de vida
     onMounted(() => {
-      // Inicializar gráficos
-      setTimeout(() => {
-        updateCharts();
-      }, 100);
-      
-      // Manejar resize para responsividad
-      window.addEventListener('resize', () => {
-        updateCharts();
-      });
+      // Podrías inicializar aquí componentes de gráficos en una versión no estática
     });
     
     return {
-      // Referencias
-      mainChartContainer,
-      predictionChartContainer,
-      tempGaugeContainer,
-      oxygenGaugeContainer,
-      currentsGaugeContainer,
-      salinityGaugeContainer,
-      historicalChartContainer,
-      
       // Estado
       selectedVariable,
       selectedTimeframe,
-      historicalVariable,
       activeTab,
       tabs,
-      selectedFarm,
-      keyIndicators,
+      indicators,
       alerts,
-      alertsCount,
       predictions,
+      environmentalData,
       infrastructureItems,
       maintenanceTasks,
       
       // Métodos
-      getValueClass,
-      getPredictionClass,
-      updateMainChart,
-      updateHistoricalChart,
-      getVariableName
+      updateChart,
+      calculateRotation,
+      getStatusColor,
+      getVariableName,
+      getUnitByVariable
     };
-    
-    // Funciones específicas de actualización
-    const updateMainChart = () => {
-      createMainChart();
-      emit('variable-changed', selectedVariable.value);
-    };
-    
-    const updateHistoricalChart = () => {
-      createHistoricalChart();
-    };
-    
-    // Funciones auxiliares para generación de datos
-    const generateChartData = () => {
-      const now = new Date();
-      const data = [];
-      
-      // Número de puntos basado en timeframe
-      let numPoints = 24;
-      let step = 60 * 60 * 1000; // 1 hora en ms
-      
-      if (selectedTimeframe.value === 'week') {
-        numPoints = 168; // 24 * 7
-      } else if (selectedTimeframe.value === 'month') {
-        numPoints = 30;
-        step = 24 * 60 * 60 * 1000; // 1 día
-      } else if (selectedTimeframe.value === 'year') {
-        numPoints = 52;
-        step = 7 * 24 * 60 * 60 * 1000; // 1 semana
-      }
-      
-      // Base para las curvas
-      const baseValue = getBaseValueByVariable();
-      const amplitude = getAmplitudeByVariable();
-      const frequency = 0.2;
-      
-      for (let i = 0; i < numPoints; i++) {
-        const date = new Date(now.getTime() - (numPoints - i) * step);
-        
-        // Valor con componente sinusoidal + tendencia + ruido
-        const sinComponent = Math.sin(i * frequency) * amplitude;
-        const trendComponent = (i / numPoints) * amplitude * 0.5;
-        const noiseComponent = (Math.random() - 0.5) * amplitude * 0.3;
-        
-        const value = baseValue + sinComponent + trendComponent + noiseComponent;
-        
-        data.push({
-          date,
-          value: Math.max(0, value.toFixed(2)) // Asegurar valores no negativos
-        });
-      }
-      
-      return data;
-    };
-    
-    const generateMonthlyData = () => {
-      const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      const data = [];
-      
-      // Base para los valores
-      const baseValue = getBaseValueByVariable();
-      const amplitude = getAmplitudeByVariable();
-      
-      // Componente de tendencia anual (por ejemplo, incremento en verano para temperatura)
-      let trendPattern;
-      if (historicalVariable.value === 'temperature') {
-        trendPattern = [0.7, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 1.7, 1.5, 1.2, 0.9, 0.7];
-      } else if (historicalVariable.value === 'oxygen') {
-        trendPattern = [1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1];
-      } else if (historicalVariable.value === 'currents') {
-        trendPattern = [1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3];
-      } else {
-        trendPattern = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
-      }
-      
-      for (let i = 0; i < months.length; i++) {
-        const trend = baseValue * trendPattern[i];
-        const randomFactor = 1 + (Math.random() - 0.5) * 0.1;
-        data.push({
-          month: months[i],
-          value: (trend * randomFactor).toFixed(2),
-          trend: trend.toFixed(2)
-        });
-      }
-      
-      return data;
-    };
-    
-    const getBaseValueByVariable = () => {
-      switch (selectedVariable.value) {
-        case 'temperature': return 22;
-        case 'oxygen': return 6;
-        case 'currents': return 0.3;
-        case 'salinity': return 36;
-        default: return 20;
-      }
-    };
-    
-    const getAmplitudeByVariable = () => {
-      switch (selectedVariable.value) {
-        case 'temperature': return 1.5;
-        case 'oxygen': return 0.8;
-        case 'currents': return 0.15;
-        case 'salinity': return 1.2;
-        default: return 1;
-      }
-    };
-    
-    const getThresholdByVariable = () => {
-      switch (selectedVariable.value) {
-        case 'temperature': return 26;
-        case 'oxygen': return 5;
-        case 'currents': return 0.8;
-        case 'salinity': return 38;
-        default: return 20;
-      }
-    };
-    
-    const getUnitByVariable = (variable) => {
-      switch (variable) {
-        case 'temperature': return '°C';
-        case 'oxygen': return 'mg/L';
-        case 'currents': return 'm/s';
-        case 'salinity': return 'ppt';
-        default: return '';
-      }
-    };
-    
-      const getVariableName = (variable) => {
-        switch (variable) {
-          case 'temperature': return 'Temperatura';
-          case 'oxygen': return 'Oxígeno Disuelto';
-          case 'currents': return 'Velocidad de Corrientes';
-          case 'salinity': return 'Salinidad';
-            default: return variable;
-          }
-      };
   }
 };
 </script>
+
+<style scoped>
+.stats-dashboard {
+  padding: 15px;
+  height: 100%;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+}
+
+.stats-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 10px;
+}
+
+.stats-header h2 {
+  margin: 0 0 10px 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+.farm-info {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.farm-info span {
+  margin-bottom: 5px;
+}
+
+.stats-tabs {
+  display: flex;
+  border-bottom: 1px solid #e1e4e8;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 10px 15px;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  background-color: #f1f1f1;
+}
+
+.tab.active {
+  border-bottom-color: #3498db;
+  color: #3498db;
+}
+
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Indicadores */
+.indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.indicator {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.indicator-title {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-bottom: 5px;
+}
+
+.indicator-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.normal-value {
+  color: #2ecc71;
+}
+
+.warning-value {
+  color: #f39c12;
+}
+
+.danger-value {
+  color: #e74c3c;
+}
+
+.indicator-trend {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+.trend-up {
+  color: #2ecc71;
+}
+
+.trend-down {
+  color: #e74c3c;
+}
+
+/* Gráfico principal */
+.main-chart-section {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.main-chart-section h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: #2c3e50;
+  margin-bottom: 15px;
+}
+
+.chart-container,
+.prediction-chart-container {
+  height: 200px;
+  margin-bottom: 15px;
+}
+
+.chart-placeholder {
+  height: 100%;
+  width: 100%;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.chart-line {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+  mask-size: 100% 100%;
+  mask-position: center;
+}
+
+.chart-line.temperature {
+  background: linear-gradient(180deg, rgba(231, 76, 60, 0.1) 0%, rgba(231, 76, 60, 0.5) 100%);
+  border-bottom: 2px solid #e74c3c;
+  clip-path: path('M0,100 C50,70 100,90 150,60 C200,30 250,50 300,40 C350,30 400,50 450,30 C500,10 550,50 600,30 L600,200 L0,200 Z');
+}
+
+.chart-line.oxygen {
+  background: linear-gradient(180deg, rgba(52, 152, 219, 0.1) 0%, rgba(52, 152, 219, 0.5) 100%);
+  border-bottom: 2px solid #3498db;
+  clip-path: path('M0,120 C50,100 100,70 150,90 C200,110 250,90 300,100 C350,110 400,90 450,80 C500,70 550,90 600,70 L600,200 L0,200 Z');
+}
+
+.chart-line.salinity {
+  background: linear-gradient(180deg, rgba(155, 89, 182, 0.1) 0%, rgba(155, 89, 182, 0.5) 100%);
+  border-bottom: 2px solid #9b59b6;
+  clip-path: path('M0,80 C50,100 100,90 150,70 C200,50 250,60 300,80 C350,100 400,90 450,110 C500,130 550,120 600,100 L600,200 L0,200 Z');
+}
+
+.chart-line.currents {
+  background: linear-gradient(180deg, rgba(46, 204, 113, 0.1) 0%, rgba(46, 204, 113, 0.5) 100%);
+  border-bottom: 2px solid #2ecc71;
+  clip-path: path('M0,150 C50,130 100,150 150,120 C200,90 250,110 300,130 C350,150 400,140 450,120 C500,100 550,130 600,100 L600,200 L0,200 Z');
+}
+
+.chart-line.nutrientes {
+  background: linear-gradient(180deg, rgba(241, 196, 15, 0.1) 0%, rgba(241, 196, 15, 0.5) 100%);
+  border-bottom: 2px solid #f1c40f;
+  clip-path: path('M0,110 C50,90 100,100 150,80 C200,60 250,70 300,60 C350,50 400,70 450,50 C500,30 550,60 600,40 L600,200 L0,200 Z');
+}
+
+/* Agrega este CSS al final del <style> en StatsComponent.vue */
+
+.chart-control-item {
+  flex: 1;
+}
+
+.chart-control-item label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 5px;
+  color: #6c757d;
+}
+
+.chart-control-item select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid #ced4da;
+  background-color: white;
+  font-size: 0.9rem;
+}
+
+/* Alertas */
+.alerts-summary-section {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.alerts-summary-section h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: #2c3e50;
+  margin-bottom: 15px;
+}
+
+.no-alerts {
+  text-align: center;
+  padding: 20px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alert-item {
+  padding: 12px 15px;
+  border-radius: 6px;
+  border-left: 4px solid;
+  background-color: #f8f9fa;
+}
+
+.alert-item.alta {
+  border-left-color: #e74c3c;
+  background-color: rgba(231, 76, 60, 0.1);
+}
+
+.alert-item.media {
+  border-left-color: #f39c12;
+  background-color: rgba(243, 156, 18, 0.1);
+}
+
+.alert-item.baja {
+  border-left-color: #3498db;
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+.alert-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.alert-icon {
+  margin-right: 8px;
+}
+
+.alert-message {
+  font-size: 0.9rem;
+  margin-bottom: 5px;
+}
+
+.alert-time {
+  font-size: 0.8rem;
+  color: #6c757d;
+  text-align: right;
+}
+
+/* Alertas detalladas */
+.alerts-list-detailed {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.alert-item-detailed {
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: white;
+  border-left: 4px solid;
+}
+
+.alert-item-detailed.alta {
+  border-left-color: #e74c3c;
+}
+
+.alert-item-detailed.media {
+  border-left-color: #f39c12;
+}
+
+.alert-item-detailed.baja {
+  border-left-color: #3498db;
+}
+
+.alert-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.alert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.2s;
+}
+
+.action-btn.resolve {
+  background-color: #2ecc71;
+  color: white;
+}
+
+.action-btn.details {
+  background-color: #f1f1f1;
+  color: #333;
+}
+
+.action-btn.resolve:hover {
+  background-color: #27ae60;
+}
+
+.action-btn.details:hover {
+  background-color: #e5e5e5;
+}
+
+/* Predicciones */
+.prediction-chart-section {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 15px;
+}
+
+.prediction-chart-container {
+  margin-bottom: 10px;
+}
+
+.prediction-line {
+  background: linear-gradient(180deg, rgba(52, 152, 219, 0.1) 0%, rgba(52, 152, 219, 0.5) 100%);
+  border-bottom: 2px solid #3498db;
+  clip-path: path('M0,100 C50,80 100,90 150,70 C180,60 200,50 250,40 L250,40 L280,70 L310,60 L340,80 L370,65 L400,85 L430,75 L460,90 L490,70 L520,85 L550,60 L600,50 L600,200 L0,200 Z');
+}
+
+.prediction-threshold {
+  position: absolute;
+  top: 40%;
+  left: 0;
+  width: 100%;
+  border-top: 2px dashed #e74c3c;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 5px;
+  justify-content: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.color-box {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  border-radius: 3px;
+}
+
+.color-box.dashed {
+  border: 2px dashed;
+  background-color: transparent !important;
+}
+
+.prediction-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
+}
+
+.prediction-item {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.prediction-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.prediction-title {
+  font-weight: 600;
+}
+
+.prediction-time {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+.prediction-value {
+  font-size: 1.8rem;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.prediction-confidence {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.confidence-bar {
+  height: 6px;
+  background-color: #f1f1f1;
+  border-radius: 3px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  background-color: #3498db;
+  border-radius: 3px;
+}
+
+/* Datos ambientales */
+.environment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.env-panel {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.env-panel h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1rem;
+  color: #2c3e50;
+  text-align: center;
+}
+
+.gauge-container {
+  width: 100%;
+  height: 120px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.gauge {
+  width: 150px;
+  height: 75px;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 6px solid #f1f1f1;
+  border-radius: 80px 80px 0 0;
+}
+
+.gauge-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 150px;
+  height: 75px;
+  background-color: #3498db;
+  transform-origin: bottom center;
+  transform: rotate(-90deg);
+  transition: transform 0.5s;
+}
+
+.gauge-center {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.gauge-value {
+  font-size: 1.2rem;
+  font-weight: bold;
+  background-color: white;
+  padding: 5px 10px;
+  border-radius: 15px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.env-stats {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  text-align: center;
+}
+
+.env-stat {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+}
+
+.env-stat .label {
+  color: #6c757d;
+  margin-bottom: 3px;
+}
+
+.env-stat .value {
+  font-weight: 600;
+}
+
+/* Infraestructura */
+.infrastructure-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.status-item {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.status-title {
+  font-weight: 600;
+}
+
+.status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.status-indicator.good {
+  background-color: #2ecc71;
+}
+
+.status-indicator.warning {
+  background-color: #f39c12;
+}
+
+.status-indicator.danger {
+  background-color: #e74c3c;
+}
+
+.status-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.detail-label {
+  color: #6c757d;
+}
+
+.maintenance-schedule {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.maintenance-schedule h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1rem;
+  color: #2c3e50;
+}
+
+.schedule-item {
+  display: flex;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.schedule-item:last-child {
+  border-bottom: none;
+}
+
+.task-date {
+  width: 90px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.task-content {
+  flex: 1;
+  padding: 0 15px;
+}
+
+.task-title {
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.task-description {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.task-status {
+  width: 100px;
+  text-align: center;
+  font-size: 0.85rem;
+  padding: 3px 8px;
+  border-radius: 12px;
+  height: fit-content;
+}
+
+.task-status.pending {
+  background-color: #f8f9fa;
+  color: #6c757d;
+}
+
+.task-status.urgent {
+  background-color: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+}
+
+.task-status.completed {
+  background-color: rgba(46, 204, 113, 0.1);
+  color: #2ecc71;
+}
+
+/* Media Queries para responsividad */
+@media (max-width: 768px) {
+  .stats-tabs {
+    overflow-x: auto;
+    padding-bottom: 5px;
+  }
+  
+  .tab {
+    white-space: nowrap;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .indicators-grid,
+  .environment-grid,
+  .prediction-metrics,
+  .infrastructure-status {
+    grid-template-columns: 1fr;
+  }
+  
+  .schedule-item {
+    flex-direction: column;
+  }
+  
+  .task-date {
+    width: 100%;
+    margin-bottom: 5px;
+  }
+  
+  .task-content {
+    padding: 0;
+    margin-bottom: 10px;
+  }
+  
+  .task-status {
+    width: auto;
+  }
+}
+</style>

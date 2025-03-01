@@ -41,7 +41,7 @@ export default {
         id: 1,
         name: "Centro de Investigación Piscícola de El Palmar",
         location: "El Palmar, Valencia",
-        coordinates: [39.4167, -0.3333],
+        coordinates: [39.4045, -0.4510],
         type: "Investigación",
         species: ["especies dulceacuícolas amenazadas"],
         description: "Gestionado por VAERSA, enfocado en conservación mediante programas de producción y cría en cautividad."
@@ -50,7 +50,7 @@ export default {
         id: 2,
         name: "Centro de Cultivo de Peces de Tuéjar",
         location: "Tuéjar, Valencia",
-        coordinates: [39.8833, -1.0167],
+        coordinates: [39.8803, -1.0167],  // Coordenadas corregidas
         type: "Producción",
         species: ["trucha arcoíris", "madrilla del Turia"],
         description: "Especializado en trucha arcoíris y madrilla del Turia, con planes para otras especies."
@@ -59,7 +59,7 @@ export default {
         id: 3,
         name: "Centro de Cultivo de Peces de Aguas Templadas",
         location: "Polinyà del Xúquer, Valencia",
-        coordinates: [39.1833, -0.4167],
+        coordinates: [39.1996, -0.4261],  // Coordenadas corregidas
         type: "Reproducción y Engorde",
         species: ["anguila", "fartet"],
         description: "Dedicado a reproducción y engorde de diversas especies, incluyendo anguila y fartet."
@@ -68,7 +68,7 @@ export default {
         id: 4,
         name: "Polígono de Acuicultura de San Pedro del Pinatar",
         location: "San Pedro del Pinatar, Murcia",
-        coordinates: [37.8667, -0.7833],
+        coordinates: [37.8760, -0.7754],  // Coordenadas corregidas
         type: "Producción Comercial",
         species: ["dorada", "lubina"],
         description: "El polígono de acuicultura más grande de la Región de Murcia."
@@ -77,10 +77,37 @@ export default {
         id: 5,
         name: "Piscifactorías de Mazarrón",
         location: "Mazarrón, Murcia",
-        coordinates: [37.5667, -1.6000],
+        coordinates: [37.5494, -1.6111],  // Coordenadas corregidas
         type: "Producción Comercial",
         species: ["dorada", "lubina"],
         description: "Instalaciones dedicadas al cultivo de dorada y lubina."
+      },
+      {
+       id: 6,
+       name: "Centro Acuícola de Albufera",
+       location: "Albufera, Valencia",
+       coordinates: [39.2943, -0.4107],  // Nueva piscifactoría añadida
+       type: "Investigación y Producción",
+       species: ["anguila", "carpa"],
+       description: "Centro dedicado a la investigación y producción de especies autóctonas de la Albufera."
+      },
+      {
+       id: 7,
+       name: "Piscifactoría de Catarroja",
+       location: "Catarroja, Valencia",
+       coordinates: [39.4000, -0.4000],  // Nueva piscifactoría añadida
+       type: "Producción",
+       species: ["trucha arcoíris", "carpa"],
+       description: "Piscifactoría especializada en trucha arcoíris y carpa."
+      },
+      {
+        id: 7,
+        name: "Acuicultura de la Costa de Valencia",
+        location: "Valencia, Comunidad Valenciana",
+        coordinates: [39.4699, -0.3763],  // Nueva piscifactoría añadida
+        type: "Producción Comercial",
+        species: ["lubina", "dorada"],
+        description: "Piscifactoría de producción comercial con especies como dorada y lubina en la costa valenciana."
       }
     ];
 

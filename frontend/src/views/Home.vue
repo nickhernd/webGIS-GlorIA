@@ -1,4 +1,4 @@
-<!-- frontend/src/views/Home.vue -->
+<!-- src/views/Home.vue -->
 <template>
   <div class="home-container">
     <div class="sidebar">
@@ -16,6 +16,7 @@
               <option value="currents">Corrientes</option>
               <option value="salinity">Salinidad</option>
               <option value="oxygen">Oxígeno Disuelto</option>
+              <option value="nutrientes">Nutrientes</option>
             </select>
           </div>
           
@@ -100,21 +101,6 @@
     </div>
     
     <div class="main-content">
-      <div class="top-bar">
-        <div class="breadcrumbs">
-          <span>Inicio</span> / 
-          <span v-if="selectedFarmId">{{ getSelectedFarmName() }}</span>
-          <span v-else>Vista general</span>
-        </div>
-        <div class="user-controls">
-          <button class="settings-btn" @click="showSettings">⚙️</button>
-          <div class="user-info">
-            <span class="user-name">Usuario</span>
-            <span class="user-avatar">👤</span>
-          </div>
-        </div>
-      </div>
-      
       <div class="content-container">
         <div class="map-wrapper">
           <LeafletMap 
@@ -122,14 +108,13 @@
             :selectedDate="selectedDate"
             :selectedVariable="selectedVariable"
             @farm-selected="selectFarm"
-            :fishFarms="farms"
           />
         </div>
         
-        <div class="stats-wrapper">
+        <div class="stats-wrapper" v-if="selectedFarm">
           <StatsComponent 
             :selectedFarmId="selectedFarmId"
-            :fishFarms="farms" 
+            :selectedFarm="selectedFarm" 
             :date="selectedDate"
             @variable-changed="updateSelectedVariable"
           />
@@ -169,54 +154,6 @@
       </div>
     </div>
     
-    <div class="modal" v-if="showSettingsModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>Configuración</h2>
-          <button class="close-btn" @click="showSettingsModal = false">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="settings-section">
-            <h3>Visualización del mapa</h3>
-            <div class="settings-option">
-              <label>
-                <input type="checkbox" v-model="settings.showLabels" @change="applySettings">
-                Mostrar etiquetas en el mapa
-              </label>
-            </div>
-            <div class="settings-option">
-              <label>
-                <input type="checkbox" v-model="settings.showGrid" @change="applySettings">
-                Mostrar cuadrícula de referencia
-              </label>
-            </div>
-            <div class="settings-option">
-              <label>Base de mapa:</label>
-              <select v-model="settings.mapBase" @change="applySettings">
-                <option value="osm">OpenStreetMap</option>
-                <option value="satellite">Satélite</option>
-                <option value="terrain">Terreno</option>
-              </select>
-            </div>
-          </div>
-          
-          <div class="settings-section">
-            <h3>Alertas</h3>
-            <div class="settings-option">
-              <label>
-                <input type="checkbox" v-model="settings.notificationsEnabled" @change="applySettings">
-                Activar notificaciones de alertas
-              </label>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn secondary" @click="showSettingsModal = false">Cancelar</button>
-          <button class="btn primary" @click="saveSettings">Guardar</button>
-        </div>
-      </div>
-    </div>
-    
     <div class="toast" v-if="showToast">
       {{ toastMessage }}
     </div>
@@ -244,19 +181,10 @@ export default {
     
     // Estado para modales
     const showHelpModal = ref(false);
-    const showSettingsModal = ref(false);
     
     // Toast para notificaciones
     const showToast = ref(false);
     const toastMessage = ref('');
-    
-    // Configuraciones
-    const settings = ref({
-      showLabels: true,
-      showGrid: false,
-      mapBase: 'osm',
-      notificationsEnabled: true
-    });
     
     // Fecha seleccionada como objeto Date
     const selectedDate = computed(() => {
@@ -271,6 +199,12 @@ export default {
       high: 0,
       medium: 0,
       low: 0
+    });
+    
+    // Piscifactoría seleccionada
+    const selectedFarm = computed(() => {
+      if (!selectedFarmId.value) return null;
+      return farms.value.find(farm => farm.id === selectedFarmId.value);
     });
     
     // Métodos
@@ -295,8 +229,8 @@ export default {
         // Actualizar conteo de alertas según nivel
         const counts = { high: 0, medium: 0, low: 0 };
         response.data.forEach(alert => {
-          if (alert.nivel === 'alta') counts.high++;
-          else if (alert.nivel === 'media') counts.medium++;
+          if (alert.level === 'alta') counts.high++;
+          else if (alert.level === 'media') counts.medium++;
           else counts.low++;
         });
         
@@ -314,13 +248,12 @@ export default {
           variable: selectedVariable.value
         };
         
-        const response = await DataService.getDatosAmbientales(params);
+        await DataService.getDatosAmbientales(params);
         
         // Aquí se actualizaría la capa del mapa con los datos recibidos
         if (mapComponent.value) {
-          // Llamar al método del componente mapa para actualizar la capa
-          // mapComponent.value.updateLayer(response.data);
-          console.log('Datos ambientales actualizados:', response.data);
+          // En esta versión estática simplemente actualizamos la vista
+          showToastMessage(`Datos de ${getVariableName(selectedVariable.value)} actualizados`);
         }
       } catch (error) {
         console.error('Error al cargar datos ambientales:', error);
@@ -336,7 +269,6 @@ export default {
         if (farmId) {
           // Cargar datos detallados de la piscifactoría
           const response = await DataService.getPiscifactoria(farmId);
-          console.log('Datos detallados de piscifactoría:', response.data);
           
           // Mostrar toast de confirmación
           showToastMessage(`Piscifactoría seleccionada: ${response.data.name}`);
@@ -345,41 +277,15 @@ export default {
         console.error('Error al cargar detalles de piscifactoría:', error);
       }
     };
-
-    const getSelectedFarmName = () => {
-      if (!selectedFarmId.value) return '';
-      const farm = farms.value.find(f => f.id === selectedFarmId.value);
-      return farm ? farm.name : '';
-    };
     
     const updateSelectedVariable = (variable) => {
       selectedVariable.value = variable;
       updateMapLayer();
     };
     
-    // Métodos para modales
+    // Mostrar modal de ayuda
     const showHelp = () => {
       showHelpModal.value = true;
-    };
-    
-    const showSettings = () => {
-      showSettingsModal.value = true;
-    };
-    
-    const applySettings = () => {
-      // Aplicar configuraciones al mapa
-      if (mapComponent.value) {
-        // Aquí se aplicarían las configuraciones al mapa
-      }
-    };
-    
-    const saveSettings = () => {
-      applySettings();
-      showSettingsModal.value = false;
-      showToastMessage('Configuración guardada');
-      
-      // En una aplicación real, aquí se guardarían las configuraciones en localStorage o backend
-      localStorage.setItem('gloria-settings', JSON.stringify(settings.value));
     };
     
     // Funcionalidad para exportar datos
@@ -412,19 +318,20 @@ export default {
       }, 3000);
     };
     
-    // Cargar configuraciones guardadas
-    const loadSavedSettings = () => {
-      const savedSettings = localStorage.getItem('gloria-settings');
-      if (savedSettings) {
-        settings.value = JSON.parse(savedSettings);
-      }
+    // Función auxiliar para obtener nombre legible de variables
+    const getVariableName = (variableKey) => {
+      const names = {
+        'temperature': 'Temperatura',
+        'oxygen': 'Oxígeno disuelto',
+        'salinity': 'Salinidad',
+        'currents': 'Corrientes',
+        'nutrientes': 'Nutrientes'
+      };
+      return names[variableKey] || variableKey;
     };
     
     // Ciclo de vida
     onMounted(() => {
-      // Cargar configuraciones
-      loadSavedSettings();
-      
       // Cargar datos iniciales
       loadFarms();
       loadAlerts();
@@ -434,17 +341,8 @@ export default {
     // Observar cambios en el ID de la piscifactoría seleccionada
     watch(selectedFarmId, (newId) => {
       if (newId && mapComponent.value) {
-        // Centrar mapa en la piscifactoría seleccionada
-        const farm = farms.value.find(f => f.id === newId);
-        if (farm) {
-          // Aquí se centraría el mapa en las coordenadas de la piscifactoría
-        }
+        // Aquí se podría centrar el mapa en la piscifactoría seleccionada
       }
-    });
-    
-    // Agregar watchers para reaccionar a cambios
-    watch([selectedVariable, selectedDateString], () => {
-      updateMapLayer();
     });
     
     return {
@@ -452,25 +350,18 @@ export default {
       selectedDateString,
       selectedDate,
       selectedFarmId,
+      selectedFarm,
       farms,
       alertCounts,
-      settings,
       showHelpModal,
-      showSettingsModal,
       showToast,
       toastMessage,
       mapComponent,
       updateMapLayer,
       selectFarm,
-      getSelectedFarmName,
       updateSelectedVariable,
       showHelp,
-      showSettings,
-      applySettings,
-      saveSettings,
-      exportData,
-      loadFarms,
-      loadAlerts
+      exportData
     };
   }
 };
@@ -732,46 +623,6 @@ export default {
   overflow: hidden;
 }
 
-.top-bar {
-  height: 60px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 20px;
-  background-color: white;
-  border-bottom: 1px solid #e1e4e8;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.breadcrumbs {
-  font-size: 0.9rem;
-  color: #6c757d;
-}
-
-.user-controls {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.settings-btn {
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-}
-
-.user-avatar {
-  font-size: 1.2rem;
-}
-
 .content-container {
   flex: 1;
   display: grid;
@@ -884,40 +735,6 @@ export default {
 .btn.secondary {
   background-color: #f1f1f1;
   color: #333;
-}
-
-/* Configuraciones */
-.settings-section {
-  margin-bottom: 20px;
-}
-
-.settings-section h3 {
-  font-size: 1rem;
-  margin-bottom: 10px;
-  color: #2c3e50;
-  padding-bottom: 5px;
-  border-bottom: 1px solid #f1f1f1;
-}
-
-.settings-option {
-  margin-bottom: 10px;
-}
-
-.settings-option label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  color: #5a6268;
-}
-
-.settings-option select {
-  width: 100%;
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid #ced4da;
-  font-size: 0.9rem;
-  margin-top: 5px;
 }
 
 /* Toast */
