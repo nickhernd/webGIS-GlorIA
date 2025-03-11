@@ -1,4 +1,3 @@
-<!-- src/views/Home.vue -->
 <template>
   <div class="home-container">
     <div class="sidebar">
@@ -13,9 +12,9 @@
             <label for="variable-select">Variable Ambiental:</label>
             <select id="variable-select" v-model="selectedVariable" @change="updateMapLayer">
               <option value="temperature">Temperatura</option>
+              <option value="oxygen">Oxígeno Disuelto</option>
               <option value="currents">Corrientes</option>
               <option value="salinity">Salinidad</option>
-              <option value="oxygen">Oxígeno Disuelto</option>
               <option value="nutrientes">Nutrientes</option>
             </select>
           </div>
@@ -30,7 +29,14 @@
         
         <div class="section">
           <h2>Piscifactorías</h2>
-          <div class="farms-list">
+          <div v-if="isLoading" class="loading-indicator">
+            <div class="spinner"></div>
+            <span>Cargando datos...</span>
+          </div>
+          <div v-else-if="farms.length === 0" class="no-data">
+            No se encontraron piscifactorías.
+          </div>
+          <div v-else class="farms-list">
             <div 
               v-for="farm in farms" 
               :key="farm.id" 
@@ -71,15 +77,15 @@
           <h2>Leyenda</h2>
           <div class="legend">
             <div class="legend-item">
-              <span class="color-box" style="background-color: red;"></span>
+              <span class="color-box" :style="{backgroundColor: getColorForVariable('high')}"></span>
               <span class="legend-label">Alto riesgo</span>
             </div>
             <div class="legend-item">
-              <span class="color-box" style="background-color: orange;"></span>
+              <span class="color-box" :style="{backgroundColor: getColorForVariable('medium')}"></span>
               <span class="legend-label">Riesgo medio</span>
             </div>
             <div class="legend-item">
-              <span class="color-box" style="background-color: green;"></span>
+              <span class="color-box" :style="{backgroundColor: getColorForVariable('low')}"></span>
               <span class="legend-label">Bajo riesgo</span>
             </div>
             <div class="legend-item">
@@ -91,8 +97,9 @@
       </div>
       
       <div class="sidebar-footer">
-        <button class="export-btn" @click="exportData">
-          <span class="icon">📊</span> Exportar datos
+        <button class="export-btn" @click="exportData" :disabled="isExporting">
+          <span class="icon">{{ isExporting ? '⏳' : '📊' }}</span> 
+          {{ isExporting ? 'Exportando...' : 'Exportar datos' }}
         </button>
         <button class="help-btn" @click="showHelp">
           <span class="icon">❓</span> Ayuda
@@ -107,6 +114,7 @@
             ref="mapComponent"
             :selectedDate="selectedDate"
             :selectedVariable="selectedVariable"
+            :selectedFarmId="selectedFarmId"
             @farm-selected="selectFarm"
           />
         </div>
@@ -118,6 +126,13 @@
             :date="selectedDate"
             @variable-changed="updateSelectedVariable"
           />
+        </div>
+        <div v-else class="no-farm-selected">
+          <div class="no-farm-message">
+            <div class="icon">🔍</div>
+            <h3>Ninguna piscifactoría seleccionada</h3>
+            <p>Haz clic en una piscifactoría en el mapa o en la lista para ver sus detalles.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -147,6 +162,13 @@
             <li>Haz clic en una piscifactoría en el mapa o en la lista para ver sus detalles.</li>
             <li>Explora los diferentes paneles de estadísticas para analizar los datos.</li>
           </ol>
+          
+          <h4>Novedades:</h4>
+          <ul>
+            <li><strong>Gráfico temporal dinámico:</strong> Visualiza la evolución de variables ambientales a lo largo del tiempo.</li>
+            <li><strong>Predicciones:</strong> Accede a predicciones basadas en análisis de datos históricos.</li>
+            <li><strong>Línea de tiempo:</strong> Usa los controles del mapa para ver cómo evolucionan los datos en el tiempo.</li>
+          </ul>
         </div>
         <div class="modal-footer">
           <button class="btn primary" @click="showHelpModal = false">Entendido</button>
@@ -186,6 +208,10 @@ export default {
     const showToast = ref(false);
     const toastMessage = ref('');
     
+    // Estado de carga y exportación
+    const isLoading = ref(false);
+    const isExporting = ref(false);
+    
     // Fecha seleccionada como objeto Date
     const selectedDate = computed(() => {
       return new Date(selectedDateString.value);
@@ -206,18 +232,68 @@ export default {
       if (!selectedFarmId.value) return null;
       return farms.value.find(farm => farm.id === selectedFarmId.value);
     });
+
+    const sharedDateRange = ref({
+      start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      end: new Date(),
+      preset: 'week'
+    });
+    
+    // Obtener color según la variable ambiental seleccionada
+    const getColorForVariable = (risk) => {
+      const colors = {
+        temperature: {
+          high: '#e74c3c',
+          medium: '#f39c12',
+          low: '#2ecc71'
+        },
+        oxygen: {
+          high: '#e74c3c',
+          medium: '#f39c12',
+          low: '#3498db'
+        },
+        salinity: {
+          high: '#9b59b6',
+          medium: '#3498db',
+          low: '#2ecc71'
+        },
+        currents: {
+          high: '#e74c3c',
+          medium: '#f39c12',
+          low: '#2ecc71'
+        },
+        nutrientes: {
+          high: '#e74c3c',
+          medium: '#f1c40f',
+          low: '#2ecc71'
+        }
+      };
+      
+      // Usar colores según la variable seleccionada, o colores por defecto
+      const variableColors = colors[selectedVariable.value] || colors.temperature;
+      return variableColors[risk];
+    };
     
     // Métodos
     // Cargar datos de piscifactorías
     const loadFarms = async () => {
+      isLoading.value = true;
       try {
         showToastMessage('Cargando datos de piscifactorías...');
         const response = await DataService.getPiscifactorias();
         farms.value = response.data;
+        
+        // Si hay datos y no hay selección previa, seleccionar la primera
+        if (farms.value.length > 0 && !selectedFarmId.value) {
+          await selectFarm(farms.value[0].id);
+        }
+        
         showToastMessage('Datos cargados correctamente');
       } catch (error) {
         console.error('Error al cargar piscifactorías:', error);
         showToastMessage('Error al cargar datos de piscifactorías');
+      } finally {
+        isLoading.value = false;
       }
     };
 
@@ -228,15 +304,19 @@ export default {
         
         // Actualizar conteo de alertas según nivel
         const counts = { high: 0, medium: 0, low: 0 };
-        response.data.forEach(alert => {
-          if (alert.level === 'alta') counts.high++;
-          else if (alert.level === 'media') counts.medium++;
-          else counts.low++;
-        });
+        
+        if (response.data && response.data.length) {
+          response.data.forEach(alert => {
+            if (alert.nivel === 'alta') counts.high++;
+            else if (alert.nivel === 'media') counts.medium++;
+            else counts.low++;
+          });
+        }
         
         alertCounts.value = counts;
       } catch (error) {
         console.error('Error al cargar alertas:', error);
+        // Mantener alertas en 0 en caso de error
       }
     };
 
@@ -250,9 +330,10 @@ export default {
         
         await DataService.getDatosAmbientales(params);
         
-        // Aquí se actualizaría la capa del mapa con los datos recibidos
+        // Actualizar el mapa con los nuevos datos
         if (mapComponent.value) {
-          // En esta versión estática simplemente actualizamos la vista
+          // Esto activará la actualización del mapa si el componente expone ese método
+          mapComponent.value.updateLayer && mapComponent.value.updateLayer();
           showToastMessage(`Datos de ${getVariableName(selectedVariable.value)} actualizados`);
         }
       } catch (error) {
@@ -263,6 +344,9 @@ export default {
 
     // Seleccionar una piscifactoría
     const selectFarm = async (farmId) => {
+      // Si ya está seleccionada, no hacer nada
+      if (selectedFarmId.value === farmId) return;
+      
       selectedFarmId.value = farmId;
       
       try {
@@ -270,14 +354,21 @@ export default {
           // Cargar datos detallados de la piscifactoría
           const response = await DataService.getPiscifactoria(farmId);
           
+          // Si el mapa está disponible, resaltar la piscifactoría
+          if (mapComponent.value && mapComponent.value.highlightFishFarm) {
+            mapComponent.value.highlightFishFarm(farmId);
+          }
+          
           // Mostrar toast de confirmación
           showToastMessage(`Piscifactoría seleccionada: ${response.data.name}`);
         }
       } catch (error) {
         console.error('Error al cargar detalles de piscifactoría:', error);
+        showToastMessage('Error al cargar detalles de la piscifactoría');
       }
     };
     
+    // Actualizar la variable seleccionada (desde el componente de estadísticas)
     const updateSelectedVariable = (variable) => {
       selectedVariable.value = variable;
       updateMapLayer();
@@ -290,6 +381,9 @@ export default {
     
     // Funcionalidad para exportar datos
     const exportData = async () => {
+      if (isExporting.value) return;
+      
+      isExporting.value = true;
       showToastMessage('Exportando datos...');
       
       try {
@@ -300,10 +394,27 @@ export default {
         };
         
         const response = await DataService.exportarDatos(params);
-        showToastMessage('Datos exportados correctamente');
+        
+        if (response.data && response.data.success) {
+          showToastMessage('Datos exportados correctamente');
+          
+          // Si hay una URL de descarga, iniciarla
+          if (response.data.downloadUrl && response.data.downloadUrl !== '#') {
+            const a = document.createElement('a');
+            a.href = response.data.downloadUrl;
+            a.download = `datos_${selectedVariable.value}_${selectedDateString.value}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }
+        } else {
+          showToastMessage('No se pudieron exportar los datos');
+        }
       } catch (error) {
         console.error('Error al exportar datos:', error);
         showToastMessage('Error al exportar datos');
+      } finally {
+        isExporting.value = false;
       }
     };
     
@@ -341,7 +452,10 @@ export default {
     // Observar cambios en el ID de la piscifactoría seleccionada
     watch(selectedFarmId, (newId) => {
       if (newId && mapComponent.value) {
-        // Aquí se podría centrar el mapa en la piscifactoría seleccionada
+        // Intentar acceder al método highlightFishFarm del componente mapa
+        if (mapComponent.value.highlightFishFarm) {
+          mapComponent.value.highlightFishFarm(newId);
+        }
       }
     });
     
@@ -353,6 +467,8 @@ export default {
       selectedFarm,
       farms,
       alertCounts,
+      isLoading,
+      isExporting,
       showHelpModal,
       showToast,
       toastMessage,
@@ -361,7 +477,9 @@ export default {
       selectFarm,
       updateSelectedVariable,
       showHelp,
-      exportData
+      exportData,
+      getVariableName,
+      getColorForVariable
     };
   }
 };
@@ -456,6 +574,35 @@ export default {
   background-color: #34495e;
   color: white;
   font-size: 0.9rem;
+}
+
+.loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+  color: #bdc3c7;
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #3498db;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.no-data {
+  text-align: center;
+  padding: 20px 0;
+  color: #bdc3c7;
+  font-style: italic;
 }
 
 .farms-list {
@@ -602,12 +749,18 @@ export default {
   background-color: #34495e;
 }
 
-.export-btn:hover {
+.export-btn:hover:not(:disabled) {
   background-color: #2980b9;
 }
 
 .help-btn:hover {
   background-color: #2c3e50;
+}
+
+.export-btn:disabled {
+  background-color: #7f8c8d;
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .icon {
@@ -637,6 +790,34 @@ export default {
 
 .map-wrapper {
   border-right: 1px solid #e1e4e8;
+}
+
+.no-farm-selected {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f8f9fa;
+}
+
+.no-farm-message {
+  text-align: center;
+  padding: 30px;
+  color: #6c757d;
+}
+
+.no-farm-message .icon {
+  font-size: 3rem;
+  margin-bottom: 20px;
+}
+
+.no-farm-message h3 {
+  font-size: 1.2rem;
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+
+.no-farm-message p {
+  font-size: 0.9rem;
 }
 
 /* Modales */

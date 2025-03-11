@@ -1,47 +1,164 @@
 {
   "cmems_mod_med_phy-cur_anfc_4.2km_P1D-m": {
     "checksums": [
-      "1bfe5eedc8d44a28778cda5fc9a59437"
+      "1bfe5eedc8d44a28778cda5fc9a59437",
+      "aab8985b03ba6113f1c1ec79dfcad8dd",
+      "e9c1f76208a7636d4dfebbf387515193"
     ],
     "files": [
-      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km_P1D-m_20250301_191925.nc"
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km_P1D-m_20250301_191925.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km_P1D-m_20250305_213023.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km_P1D-m_20250305_213912.nc"
     ],
-    "last_download_date": "2025-03-01T19:19:17"
+    "last_download_date": "2025-03-05T21:39:03"
   },
   "cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m": {
     "checksums": [
-      "665f034de0a2c679d32eb63ba6748605"
+      "665f034de0a2c679d32eb63ba6748605",
+      "f9bf7f31d338192bec232fcc39b22ae1",
+      "21101a12b200489c7484fec1563cec14",
+      "e9a8b4979ec69027e05c7839ff88ac33",
+      "7f9386fa3cc904b8a626666f236539db",
+      "61933ac577557b865d8f41d3c53f3e54"
     ],
     "files": [
-      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250301_191931.nc"
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250301_191931.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250305_213031.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250305_213920.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250305_235829.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250306_080040.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250306_212237.nc"
     ],
-    "last_download_date": "2025-03-01T19:19:25"
+    "last_download_date": "2025-03-05T23:58:22"
   },
   "cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m": {
     "checksums": [
-      "17ca7c4330807392197fe7d8aeaf6525"
+      "17ca7c4330807392197fe7d8aeaf6525",
+      "c61ef8c3220bd2f677079498c8a8d7cd",
+      "8eafa55e6155858eb789607908ed24ef",
+      "3fc912841c25589fdb02d6fdad4ffd81",
+      "48898209a08d7b4ea10e908301c566ba",
+      "bfe28c888af540e2db9ee3cf1005c024"
     ],
     "files": [
-      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250301_191939.nc"
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250301_191939.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250305_213040.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250305_213928.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250305_235837.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250306_080052.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250306_212248.nc"
     ],
-    "last_download_date": "2025-03-01T19:19:31"
+    "last_download_date": "2025-03-05T23:58:29"
   },
   "cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m": {
     "checksums": [
-      "98b31c95d8188f532665b331d2790ec0"
+      "98b31c95d8188f532665b331d2790ec0",
+      "65dcf8da256ed1879d40cb7ee58d3f60",
+      "305301b59b1116447afcfcf80587ed55",
+      "8a741680bd274248d4707abca2e624a9",
+      "909f347e9cbfafaa4cc34832300eedc4",
+      "1476275ae88d429135d0e072a223a963"
     ],
     "files": [
-      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250301_191946.nc"
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250301_191946.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250305_213047.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250305_213935.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250305_235843.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250306_080059.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250306_212258.nc"
     ],
-    "last_download_date": "2025-03-01T19:19:39"
+    "last_download_date": "2025-03-05T23:58:37"
   },
   "cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m": {
     "checksums": [
-      "eb2274fac8cc943e99f37ea3fdd34772"
+      "eb2274fac8cc943e99f37ea3fdd34772",
+      "3d85f4270a5d27b53fa41565942633db"
     ],
     "files": [
-      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250301_192553.nc"
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250301_192553.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250305_213247.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250306_082848.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250306_215851.nc"
     ],
-    "last_download_date": "2025-03-01T19:19:46"
+    "last_download_date": "2025-03-05T21:30:47"
+  },
+  "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m": {
+    "checksums": [
+      "78df5cc5538ed8714d5a54c5e73f1513",
+      "afe327493f598c5faaeb4368f3e3b83b",
+      "638f80b59a80c3c5b1b0913375e9516e"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250305_235821.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250306_080030.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250306_212226.nc"
+    ],
+    "last_download_date": "2025-03-05T23:57:54"
+  },
+  "cmems_mod_med_bgc-car_anfc_4.2km_P1D-m": {
+    "checksums": [
+      "93835cbe62e87f7ec8eb396c9347363b",
+      "647e1fad8318b3ab03a9e70d25e7b703"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-car_anfc_4.2km_P1D-m_20250306_083531.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-car_anfc_4.2km_P1D-m_20250306_220452.nc"
+    ],
+    "last_download_date": null
+  },
+  "cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m": {
+    "checksums": [
+      "28eca517b46d69a03d88258a10169e21",
+      "c7eb3af1477ff9edc98736dfa75967d2"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m_20250306_083542.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m_20250306_220503.nc"
+    ],
+    "last_download_date": null
+  },
+  "cmems_mod_med_phy-hflux_my_4.2km_P1D-m": {
+    "checksums": [
+      "21ed7cef302a458178c7552086ce86d6",
+      "6c51f0c4453e36a5d122d35a043727eb"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250306_083615.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250306_220538.nc"
+    ],
+    "last_download_date": null
+  },
+  "med-cmcc-sal-rean-d": {
+    "checksums": [
+      "3028faccab23447cfaad0470accef2c6",
+      "fed4671152b2d57f114b96acc35c04a2"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/med-cmcc-sal-rean-d_20250306_083639.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/med-cmcc-sal-rean-d_20250306_220602.nc"
+    ],
+    "last_download_date": null
+  },
+  "med-cmcc-ssh-rean-d": {
+    "checksums": [
+      "c071c2dc5504e16ffe4d16925952450a",
+      "704718ce032300a63e9463d83a089b2a"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/med-cmcc-ssh-rean-d_20250306_083703.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/med-cmcc-ssh-rean-d_20250306_220628.nc"
+    ],
+    "last_download_date": null
+  },
+  "cmems_mod_med_phy-wflux_my_4.2km_P1D-m": {
+    "checksums": [
+      "94faf565ab9cf6c7fd46a376d283732a",
+      "dd24cd6f70df1345a0c4400bcf117069"
+    ],
+    "files": [
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-wflux_my_4.2km_P1D-m_20250306_083731.nc",
+      "/home/nickhernd/webGIS-GlorIA/databases/copernicus_marine/cmems_mod_med_phy-wflux_my_4.2km_P1D-m_20250306_220654.nc"
+    ],
+    "last_download_date": null
   }
 }

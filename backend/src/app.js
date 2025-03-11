@@ -1,10 +1,14 @@
-// backend/src/app.js (versión con ES Modules)
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
+import dotenv from 'dotenv';
 import apiRoutes from './routes/api.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { testConnection } from './db.js';
+
+// Cargar variables de entorno
+dotenv.config();
 
 // Obtener __dirname equivalente en ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -20,7 +24,21 @@ app.use(express.json()); // Parsear JSON en el body
 app.use(express.urlencoded({ extended: false })); // Parsear URL-encoded en el body
 
 // Servir archivos estáticos desde la carpeta frontend/dist (para producción)
-app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+app.use(express.static(path.join(__dirname, '../../frontend')));
+
+// Probar conexión a la base de datos al iniciar
+testConnection()
+  .then(connected => {
+    if (connected) {
+      console.log('✅ Conexión a la base de datos establecida correctamente');
+    } else {
+      console.warn('⚠️ No se pudo establecer conexión a la base de datos. El API utilizará datos simulados.');
+    }
+  })
+  .catch(err => {
+    console.error('❌ Error al verificar la conexión:', err);
+    console.warn('⚠️ El API utilizará datos simulados como fallback.');
+  });
 
 // Rutas API
 app.use('/api', apiRoutes);
@@ -33,7 +51,7 @@ app.use('/api/*', (req, res) => {
 // Ruta fallback para SPA (para producción)
 // Esta ruta debe ir después de todas las rutas API
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
+  res.sendFile(path.join(__dirname, '../../frontend/index.html'));
 });
 
 // Manejo de errores global

@@ -1,40 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script para procesar archivos NetCDF de Copernicus con manejo mejorado de formatos de fecha.
+Script para procesar datos descargados de Copernicus Marine y cargarlos en la base de datos PostgreSQL.
 
 Este script:
-1. Lee los archivos NetCDF descargados por el script de recolección
-2. Procesa y valida los datos con manejo especial para formatos de fecha
-3. Carga los datos en la base de datos PostgreSQL
-4. Registra los resultados del procesamiento
+1. Busca archivos NetCDF descargados en el directorio correspondiente
+2. Extrae los datos, los procesa y los convierte a formato adecuado para la base de datos
+3. Carga los datos en las tablas correspondientes de PostgreSQL
+4. Mueve los archivos procesados a un directorio de procesados
 
-Autor: WebGIS GlorIA
+Proyecto: WebGIS GlorIA
 Fecha: Febrero 2025
 """
 
 import os
 import sys
-import time
-import json
+import glob
 import logging
-import argparse
-import re
-import numpy as np
-import pandas as pd
-import netCDF4 as nc
+import json
+import hashlib
+import shutil
 import psycopg2
-import psycopg2.extras
+import pandas as pd
+import numpy as np
 from pathlib import Path
-from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from netCDF4 import Dataset
+from psycopg2.extras import execute_values
 
 # Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("netcdf_processor.log"),
+        logging.FileHandler("process_data.log"),
         logging.StreamHandler()
     ]
 )
@@ -42,16 +42,16 @@ logger = logging.getLogger(__name__)
 
 # Constantes
 ROOT_DIR = Path(os.path.expanduser("~/webGIS-GlorIA"))
-DATA_DIR = ROOT_DIR / "databases" / "copernicus_marine"
-PROCESSED_DIR = DATA_DIR / "processed"
-FAILED_DIR = DATA_DIR / "failed"
+DOWNLOAD_DIR = ROOT_DIR / "databases" / "copernicus_marine"
+PROCESSED_DIR = DOWNLOAD_DIR / "processed"
+FAILED_DIR = DOWNLOAD_DIR / "failed"
 
 # Crear directorios si no existen
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-FAILED_DIR.mkdir(parents=True, exist_ok=True)
+for directory in [DOWNLOAD_DIR, PROCESSED_DIR, FAILED_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
 
 def setup_environment():
-    """Configura el entorno y carga las variables de entorno."""
+    """Configura el entorno y carga las credenciales de base de datos."""
     # Ruta al archivo .env
     env_path = ROOT_DIR / '.env'
 
@@ -59,615 +59,469 @@ def setup_environment():
     load_dotenv(dotenv_path=env_path)
 
     # Verificar variables de entorno necesarias
-    required_vars = ["POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    required_vars = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
+    for var in required_vars:
+        if not os.getenv(var):
+            logger.error(f"La variable de entorno {var} no está configurada en el archivo .env")
+            raise ValueError(f"La variable de entorno {var} no está configurada en el archivo .env")
     
-    if missing_vars:
-        logger.error(f"Faltan variables de entorno: {', '.join(missing_vars)}")
-        raise ValueError(f"Las siguientes variables de entorno son necesarias: {', '.join(missing_vars)}")
+    logger.info("Variables de entorno cargadas correctamente")
 
 def get_db_connection():
-    """Establece y retorna una conexión a la base de datos PostgreSQL."""
+    """Establece una conexión con la base de datos PostgreSQL."""
     try:
         conn = psycopg2.connect(
-            host=os.getenv("POSTGRES_HOST"),
-            port=os.getenv("POSTGRES_PORT"),
-            dbname=os.getenv("POSTGRES_DB"),
-            user=os.getenv("POSTGRES_USER"),
-            password=os.getenv("POSTGRES_PASSWORD")
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT"),
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD")
         )
+        logger.info("Conexión con la base de datos establecida correctamente")
         return conn
     except Exception as e:
-        logger.error(f"Error al conectar a la base de datos: {e}")
+        logger.error(f"Error al conectar con la base de datos: {e}")
         raise
 
-def extract_base_dataset_id(filename):
+def get_or_create_dataset(conn, dataset_name, dataset_id, variables, source="Copernicus Marine"):
     """
-    Extrae el ID base del dataset desde el nombre del archivo.
-    Por ejemplo, de "cmems_mod_med_phy-cur_anfc_4.2km_P1D-m_uo-vo_1.50W-0.67E_37.52N-40.48N_1.02m_2024-01-01-2025-02-28.nc"
-    extrae "cmems_mod_med_phy-cur_anfc_4.2km_P1D-m"
+    Obtiene o crea un registro de dataset en la base de datos.
+    Devuelve el ID del dataset.
     """
-    filename_str = str(filename)
-    
-    # Lista de IDs conocidos (de la consulta SQL)
-    known_ids = [
-        "cmems_mod_med_phy-cur_anfc_4.2km_P1D-m",
-        "cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m",
-        "cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m",
-        "cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m",
-        "cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m"
-    ]
-    
-    # Comprobar si alguno de los IDs conocidos está en el nombre del archivo
-    for known_id in known_ids:
-        if known_id in filename_str:
-            return known_id
-    
-    # Si no se encuentra ningún ID conocido, intentar extraerlo con patrones
-    pattern = r'(cmems_\w+_\w+_[\w-]+_\w+_[\d.]+km_[\w-]+)'
-    match = re.search(pattern, filename_str)
-    
-    if match:
-        return match.group(1)
-    
-    # Último recurso: extraer el ID manualmente basado en guiones bajos
-    parts = filename_str.split('_')
-    if len(parts) >= 7:
-        # Los IDs de Copernicus suelen tener este formato
-        return '_'.join(parts[:7])
-    
-    logger.error(f"No se pudo extraer el ID del dataset: {filename}")
-    return None
-
-def get_dataset_db_id(conn, dataset_id):
-    """Obtiene el ID de la base de datos para un dataset específico."""
-    cursor = conn.cursor()
     try:
-        # Buscar el dataset exacto
+        cursor = conn.cursor()
+        
+        # Verificar si el dataset ya existe
         cursor.execute(
-            "SELECT id FROM gloria.datasets WHERE dataset_id = %s",
-            (dataset_id,)
+            "SELECT id FROM gloria.datasets WHERE nombre = %s AND dataset_id = %s",
+            (dataset_name, dataset_id)
         )
         result = cursor.fetchone()
         
         if result:
-            return result[0]
-        
-        # Si no lo encuentra, mostrar los datasets disponibles
-        cursor.execute("SELECT dataset_id FROM gloria.datasets")
-        available_datasets = cursor.fetchall()
-        logger.warning(f"Dataset {dataset_id} no encontrado. Datasets disponibles: {[d[0] for d in available_datasets]}")
-        
-        return None
-    
-    finally:
-        cursor.close()
-
-def load_netcdf_file(file_path):
-    """Carga un archivo NetCDF y devuelve el dataset."""
-    try:
-        dataset = nc.Dataset(file_path, 'r')
-        logger.info(f"Archivo NetCDF cargado: {file_path}")
-        return dataset
-    except Exception as e:
-        logger.error(f"Error al cargar archivo NetCDF {file_path}: {e}")
-        raise
-
-def validate_netcdf(dataset, expected_variables=None):
-    """Valida el contenido de un dataset NetCDF."""
-    try:
-        # Verificar que tenga dimensiones y variables
-        if not dataset.dimensions or not dataset.variables:
-            logger.error("El archivo NetCDF no tiene dimensiones o variables")
-            return False
-        
-        # Verificar coordenadas espaciales y temporales
-        required_coords = ['longitude', 'latitude', 'time']
-        missing_coords = [coord for coord in required_coords if coord not in dataset.variables]
-        
-        if missing_coords:
-            alternate_coords = {
-                'longitude': ['lon', 'x'],
-                'latitude': ['lat', 'y'],
-                'time': ['t']
-            }
+            dataset_db_id = result[0]
+            logger.info(f"Dataset ya existe en la base de datos con ID: {dataset_db_id}")
             
-            # Comprobar coordenadas alternativas
-            for missing in missing_coords[:]:  # Usar una copia para evitar modificar mientras iteramos
-                alternates = alternate_coords.get(missing, [])
-                found = False
-                for alt in alternates:
-                    if alt in dataset.variables:
-                        found = True
-                        logger.info(f"Usando coordenada alternativa {alt} en lugar de {missing}")
-                        break
-                if found:
-                    missing_coords.remove(missing)
-        
-        if missing_coords:
-            logger.error(f"Faltan coordenadas requeridas: {', '.join(missing_coords)}")
-            return False
-        
-        # Verificar variables específicas si se proporcionaron
-        if expected_variables:
-            available_vars = set(dataset.variables.keys())
-            missing_vars = [var for var in expected_variables if var not in available_vars]
-            
-            if missing_vars:
-                logger.error(f"Faltan variables esperadas: {', '.join(missing_vars)}")
-                return False
-        
-        return True
-    
-    except Exception as e:
-        logger.error(f"Error al validar archivo NetCDF: {e}")
-        return False
-
-def decode_time_units(time_units):
-    """
-    Decodifica las unidades de tiempo de NetCDF y devuelve la fecha base y el factor de conversión.
-    Maneja múltiples formatos de unidades de tiempo.
-    """
-    time_units = time_units.lower()
-    
-    # Patrones de unidades de tiempo comunes y sus factores de conversión a segundos
-    time_patterns = {
-        'seconds since': 1,
-        'minutes since': 60,
-        'hours since': 3600,
-        'days since': 86400
-    }
-    
-    # Encontrar el patrón y factor adecuados
-    conversion_factor = None
-    for pattern, factor in time_patterns.items():
-        if pattern in time_units:
-            conversion_factor = factor
-            date_str = time_units.split(pattern)[1].strip()
-            break
-    
-    if conversion_factor is None:
-        raise ValueError(f"Formato de unidades de tiempo no reconocido: {time_units}")
-    
-    # Intentar diferentes formatos de fecha
-    date_formats = [
-        '%Y-%m-%d %H:%M:%S',  # Estándar: 2024-01-01 00:00:00
-        '%Y-%m-%d',           # Solo fecha: 2024-01-01
-        '%Y-%m-%d %H:%M',     # Sin segundos: 2024-01-01 00:00
-        '%Y-%m-%dT%H:%M:%S',  # ISO: 2024-01-01T00:00:00
-        '%Y-%m-%dT%H:%M:%SZ', # ISO con Z: 2024-01-01T00:00:00Z
-        '%Y-%m-%d %H',        # Solo hora: 2024-01-01 00
-    ]
-    
-    # Probar cada formato hasta encontrar uno que funcione
-    for date_format in date_formats:
-        try:
-            base_datetime = datetime.strptime(date_str, date_format)
-            return base_datetime, conversion_factor
-        except ValueError:
-            continue
-    
-    # Si llegamos aquí, intentar una solución para fechas específicas
-    if '1900-01-01' in date_str:
-        # Formato común en datos climáticos históricos
-        return datetime(1900, 1, 1), conversion_factor
-    elif '1970-01-01' in date_str:
-        # Época UNIX
-        return datetime(1970, 1, 1), conversion_factor
-    
-    # Si todo falla, lanzar error
-    raise ValueError(f"No se pudo interpretar la fecha base: {date_str}")
-
-def extract_data_from_netcdf(dataset, variable_name):
-    """Extrae datos de una variable específica del dataset NetCDF con manejo mejorado de fechas."""
-    try:
-        # Obtener coordenadas
-        if 'longitude' in dataset.variables:
-            longitudes = dataset.variables['longitude'][:]
-        elif 'lon' in dataset.variables:
-            longitudes = dataset.variables['lon'][:]
-        else:
-            longitudes = dataset.variables['x'][:]
-            
-        if 'latitude' in dataset.variables:
-            latitudes = dataset.variables['latitude'][:]
-        elif 'lat' in dataset.variables:
-            latitudes = dataset.variables['lat'][:]
-        else:
-            latitudes = dataset.variables['y'][:]
-            
-        if 'time' in dataset.variables:
-            times = dataset.variables['time'][:]
-            time_units = dataset.variables['time'].units
-        else:
-            times = dataset.variables['t'][:]
-            time_units = dataset.variables['t'].units
-        
-        # Usar el decodificador mejorado de unidades de tiempo
-        try:
-            base_datetime, conversion_factor = decode_time_units(time_units)
-            # Convertir los valores de tiempo a fechas
-            datetimes = [base_datetime + timedelta(seconds=float(t) * conversion_factor) for t in times]
-        except ValueError as e:
-            logger.error(f"Error al decodificar unidades de tiempo: {e}")
-            
-            # Intento alternativo: usar la biblioteca de netCDF4 para convertir directamente
-            try:
-                datetimes = nc.num2date(times, time_units)
-                logger.info("Usando nc.num2date para la conversión de fechas")
-            except Exception as e2:
-                logger.error(f"También falló la conversión con nc.num2date: {e2}")
-                raise ValueError(f"No se pudo convertir las fechas del archivo: {e} | {e2}")
-        
-        # Obtener datos de la variable
-        variable_data = dataset.variables[variable_name][:]
-        
-        # Obtener información de profundidad si existe
-        depth = None
-        if 'depth' in dataset.variables:
-            depth = dataset.variables['depth'][:]
-        
-        # Crear un DataFrame con los datos
-        rows = []
-        
-        # Determinar estructura de los datos (dimensiones)
-        var_dims = dataset.variables[variable_name].dimensions
-        
-        # Limitar el número de puntos a procesar para evitar sobrecarga
-        max_points = 1000  # Ajustar según necesidades
-        
-        # Caso: datos 3D (tiempo, lat, lon) - sin profundidad
-        if len(var_dims) == 3 and depth is None:
-            # Calcular saltos para tomar muestras
-            time_step = max(1, len(times) // 10)
-            lat_step = max(1, len(latitudes) // 10)
-            lon_step = max(1, len(longitudes) // 10)
-            
-            for t_idx in range(0, len(times), time_step):
-                t = datetimes[t_idx]
-                for lat_idx in range(0, len(latitudes), lat_step):
-                    lat = latitudes[lat_idx]
-                    for lon_idx in range(0, len(longitudes), lon_step):
-                        lon = longitudes[lon_idx]
-                        value = variable_data[t_idx, lat_idx, lon_idx]
-                        if np.ma.is_masked(value):
-                            continue  # Saltar valores enmascarados
-                        rows.append({
-                            'time': t,
-                            'latitude': float(lat),
-                            'longitude': float(lon),
-                            'value': float(value),
-                            'depth': None
-                        })
-                        
-                        # Limitar el número de puntos
-                        if len(rows) >= max_points:
-                            logger.info(f"Limitando a {max_points} puntos para evitar sobrecarga")
-                            break
-                    if len(rows) >= max_points:
-                        break
-                if len(rows) >= max_points:
-                    break
-        
-        # Caso: datos 4D (tiempo, profundidad, lat, lon)
-        elif len(var_dims) == 4:
-            # Calcular saltos para tomar muestras
-            time_step = max(1, len(times) // 5)
-            depth_step = max(1, len(depth) // 2)
-            lat_step = max(1, len(latitudes) // 5)
-            lon_step = max(1, len(longitudes) // 5)
-            
-            for t_idx in range(0, len(times), time_step):
-                t = datetimes[t_idx]
-                for d_idx in range(0, len(depth), depth_step):
-                    d = depth[d_idx]
-                    for lat_idx in range(0, len(latitudes), lat_step):
-                        lat = latitudes[lat_idx]
-                        for lon_idx in range(0, len(longitudes), lon_step):
-                            lon = longitudes[lon_idx]
-                            value = variable_data[t_idx, d_idx, lat_idx, lon_idx]
-                            if np.ma.is_masked(value):
-                                continue  # Saltar valores enmascarados
-                            rows.append({
-                                'time': t,
-                                'latitude': float(lat),
-                                'longitude': float(lon),
-                                'value': float(value),
-                                'depth': float(d)
-                            })
-                            
-                            # Limitar el número de puntos
-                            if len(rows) >= max_points:
-                                logger.info(f"Limitando a {max_points} puntos para evitar sobrecarga")
-                                break
-                        if len(rows) >= max_points:
-                            break
-                    if len(rows) >= max_points:
-                        break
-                if len(rows) >= max_points:
-                    break
-        
-        # Si no se pudo extraer ningún dato válido
-        if not rows:
-            logger.warning(f"No se pudieron extraer datos válidos para la variable {variable_name}")
-            return None
-        
-        df = pd.DataFrame(rows)
-        logger.info(f"Datos extraídos para la variable {variable_name}: {len(df)} registros")
-        return df
-        
-    except Exception as e:
-        logger.error(f"Error al extraer datos para la variable {variable_name}: {e}")
-        raise
-
-def insert_data_into_db(conn, df, dataset_db_id, variable_nombre):
-    """Inserta los datos en la base de datos PostgreSQL."""
-    try:
-        cursor = conn.cursor()
-        
-        # Usar la función gloria.insert_variable_ambiental para insertar los datos
-        # Procesamos en lotes para mejorar el rendimiento
-        batch_size = 100
-        total_rows = len(df)
-        inserted_rows = 0
-        errors = 0
-        
-        for i in range(0, total_rows, batch_size):
-            batch = df.iloc[i:i+batch_size]
-            
-            for _, row in batch.iterrows():
-                try:
-                    cursor.execute(
-                        """
-                        SELECT gloria.insert_variable_ambiental(
-                            %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        """,
-                        (
-                            dataset_db_id,
-                            variable_nombre,
-                            row['time'],
-                            row['value'],
-                            row['longitude'],
-                            row['latitude'],
-                            row['depth'],
-                            100  # Calidad por defecto
-                        )
-                    )
-                    inserted_rows += 1
-                except Exception as e:
-                    logger.error(f"Error al insertar fila: {e}")
-                    errors += 1
-            
-            # Commit cada lote
+            # Actualizar la fecha de última actualización
+            cursor.execute(
+                "UPDATE gloria.datasets SET fecha_ultima_actualizacion = NOW() WHERE id = %s",
+                (dataset_db_id,)
+            )
             conn.commit()
-            logger.info(f"Progreso: {inserted_rows}/{total_rows} filas insertadas")
+        else:
+            # Crear nuevo dataset
+            cursor.execute(
+                """
+                INSERT INTO gloria.datasets (
+                    nombre, descripcion, fuente, dataset_id, variables, 
+                    url_base, formato, frecuencia_actualizacion, 
+                    fecha_registro, fecha_ultima_actualizacion, activo
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), TRUE
+                ) RETURNING id
+                """,
+                (
+                    dataset_name,
+                    f"Datos de {dataset_name} de Copernicus Marine",
+                    source,
+                    dataset_id,
+                    variables,
+                    "https://resources.marine.copernicus.eu/",
+                    "NetCDF",
+                    "diaria"
+                )
+            )
+            dataset_db_id = cursor.fetchone()[0]
+            conn.commit()
+            logger.info(f"Nuevo dataset creado en la base de datos con ID: {dataset_db_id}")
         
-        cursor.close()
-        logger.info(f"Datos insertados para la variable {variable_nombre}: {inserted_rows} filas (errores: {errors})")
-        return inserted_rows, errors
-    
+        return dataset_db_id
     except Exception as e:
         conn.rollback()
-        logger.error(f"Error al insertar datos en la base de datos: {e}")
+        logger.error(f"Error al obtener/crear dataset en la base de datos: {e}")
         raise
 
-def register_import_in_db(conn, dataset_db_id, start_time, end_time, record_count, status, errors=None):
-    """Registra la importación en la tabla de importaciones."""
+def find_closest_piscifactoria(conn, lon, lat, max_distance_km=5.0):
+    """
+    Encuentra la piscifactoría más cercana a las coordenadas dadas,
+    dentro de una distancia máxima.
+    Devuelve el ID de la piscifactoría o None si no hay ninguna cercana.
+    """
     try:
         cursor = conn.cursor()
         
+        # Consulta para encontrar la piscifactoría más cercana dentro de una distancia máxima
         cursor.execute(
             """
-            INSERT INTO gloria.importaciones 
-            (dataset_id, fecha_inicio, fecha_fin, fecha_importacion, cantidad_registros, estado, errores, tiempo_procesamiento) 
-            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s)
-            """,
-            (
-                dataset_db_id,
-                start_time,
-                end_time,
-                record_count,
-                status,
-                errors,
-                int((end_time - start_time).total_seconds())
+            SELECT id, ST_Distance(
+                geometria::geography, 
+                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+            ) as distance_meters
+            FROM gloria.piscifactorias
+            WHERE ST_DWithin(
+                geometria::geography, 
+                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
+                %s * 1000  -- Convertir km a metros
             )
+            ORDER BY distance_meters ASC
+            LIMIT 1
+            """,
+            (lon, lat, lon, lat, max_distance_km)
         )
         
-        conn.commit()
-        cursor.close()
-        logger.info(f"Importación registrada para el dataset {dataset_db_id}")
-    
+        result = cursor.fetchone()
+        
+        if result:
+            piscifactoria_id, distance = result
+            logger.info(f"Piscifactoría más cercana (ID: {piscifactoria_id}) a {distance:.2f} metros")
+            return piscifactoria_id
+        else:
+            return None
+    except Exception as e:
+        logger.error(f"Error al buscar piscifactoría cercana: {e}")
+        return None
+
+def process_netcdf_file(file_path, dataset_db_id, conn):
+    """
+    Procesa un archivo NetCDF y carga sus datos en la base de datos.
+    """
+    try:
+        logger.info(f"Procesando archivo: {file_path}")
+        
+        # Abrir el archivo NetCDF
+        with Dataset(file_path, 'r') as nc:
+            # Obtener las variables
+            variables = [var for var in nc.variables if var not in ['time', 'lat', 'lon', 'latitude', 'longitude', 'depth']]
+            
+            # Identificar las variables de coordenadas
+            lat_var_name = 'latitude' if 'latitude' in nc.variables else 'lat'
+            lon_var_name = 'longitude' if 'longitude' in nc.variables else 'lon'
+            
+            # Obtener las coordenadas
+            lats = nc.variables[lat_var_name][:]
+            lons = nc.variables[lon_var_name][:]
+            
+            # Obtener los tiempos
+            times = nc.variables['time'][:]
+            time_units = nc.variables['time'].units
+            
+            # Convertir tiempos a fechas
+            import netCDF4
+            dates = netCDF4.num2date(times, time_units)
+            
+            # Verificar si hay dimensión de profundidad
+            has_depth = 'depth' in nc.variables
+            depths = nc.variables['depth'][:] if has_depth else None
+            
+            # Preparar cursor para inserciones masivas
+            cursor = conn.cursor()
+            
+            # Contador de registros insertados
+            inserted_count = 0
+            
+            # Para cada variable
+            for var_name in variables:
+                logger.info(f"Procesando variable: {var_name}")
+                
+                # Obtener los datos de la variable
+                var_data = nc.variables[var_name][:]
+                
+                # Preparar los datos para inserción
+                values_to_insert = []
+                
+                # Para cada tiempo
+                for t_idx, date in enumerate(dates):
+                    # Convertir la fecha a formato ISO
+                    date_str = date.strftime('%Y-%m-%dT%H:%M:%S')
+                    
+                    # Si hay profundidad, procesar cada nivel
+                    if has_depth:
+                        for d_idx, depth in enumerate(depths):
+                            # Para cada punto de la grilla espacial
+                            for y_idx, lat in enumerate(lats):
+                                for x_idx, lon in enumerate(lons):
+                                    # Obtener el valor
+                                    if len(var_data.shape) == 4:  # Tiempo, profundidad, lat, lon
+                                        value = var_data[t_idx, d_idx, y_idx, x_idx]
+                                    else:
+                                        continue
+                                    
+                                    # Saltar valores nulos o NaN
+                                    if np.isnan(value) or value is None or value < -9990:
+                                        continue
+                                    
+                                    # Buscar piscifactoría cercana
+                                    piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat))
+                                    
+                                    # Preparar punto geográfico
+                                    geom = f"SRID=4326;POINT({float(lon)} {float(lat)})"
+                                    
+                                    # Añadir a la lista para inserción masiva
+                                    values_to_insert.append((
+                                        dataset_db_id,
+                                        var_name,
+                                        date_str,
+                                        float(value),
+                                        piscifactoria_id,
+                                        geom,
+                                        float(depth),
+                                        90  # Calidad por defecto
+                                    ))
+                    else:
+                        # Sin profundidad, procesar directamente la grilla espacial
+                        for y_idx, lat in enumerate(lats):
+                            for x_idx, lon in enumerate(lons):
+                                # Obtener el valor
+                                if len(var_data.shape) == 3:  # Tiempo, lat, lon
+                                    value = var_data[t_idx, y_idx, x_idx]
+                                else:
+                                    continue
+                                
+                                # Saltar valores nulos o NaN
+                                if np.isnan(value) or value is None or value < -9990:
+                                    continue
+                                
+                                # Buscar piscifactoría cercana
+                                piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat))
+                                
+                                # Preparar punto geográfico
+                                geom = f"SRID=4326;POINT({float(lon)} {float(lat)})"
+                                
+                                # Añadir a la lista para inserción masiva
+                                values_to_insert.append((
+                                    dataset_db_id,
+                                    var_name,
+                                    date_str,
+                                    float(value),
+                                    piscifactoria_id,
+                                    geom,
+                                    None,  # No hay profundidad
+                                    90  # Calidad por defecto
+                                ))
+                
+                # Si hay valores para insertar, hacerlo en bloques para evitar problemas de memoria
+                if values_to_insert:
+                    logger.info(f"Insertando {len(values_to_insert)} registros para la variable {var_name}")
+                    
+                    # Insertar en bloques de 1000
+                    batch_size = 1000
+                    for i in range(0, len(values_to_insert), batch_size):
+                        batch = values_to_insert[i:i+batch_size]
+                        execute_values(cursor, """
+                            INSERT INTO gloria.variables_ambientales
+                            (dataset_id, variable_nombre, fecha_tiempo, valor, piscifactoria_id, geometria, profundidad, calidad)
+                            VALUES %s
+                            ON CONFLICT (variable_nombre, fecha_tiempo, geometria) DO UPDATE
+                            SET valor = EXCLUDED.valor, calidad = EXCLUDED.calidad
+                        """, batch, template="(%s, %s, %s, %s, %s, %s, %s, %s)")
+                        
+                        inserted_count += len(batch)
+                        conn.commit()
+                
+            logger.info(f"Proceso completado para {file_path}. {inserted_count} registros insertados.")
+            
+            # Registrar la importación en la tabla de importaciones
+            cursor.execute("""
+                INSERT INTO gloria.importaciones
+                (dataset_id, fecha_inicio, fecha_fin, fecha_importacion, cantidad_registros, estado, mensaje)
+                VALUES (%s, %s, %s, NOW(), %s, %s, %s)
+            """, (
+                dataset_db_id,
+                dates[0].strftime('%Y-%m-%dT%H:%M:%S'),
+                dates[-1].strftime('%Y-%m-%dT%H:%M:%S'),
+                inserted_count,
+                'completado',
+                f'Archivo: {os.path.basename(file_path)}'
+            ))
+            conn.commit()
+            
+            return True
+            
     except Exception as e:
         conn.rollback()
-        logger.error(f"Error al registrar importación: {e}")
+        logger.error(f"Error al procesar archivo {file_path}: {e}")
+        return False
 
-def process_netcdf_file(file_path):
-    """Procesa un archivo NetCDF completo."""
-    start_time = datetime.now()
-    
+def get_dataset_info_from_filename(filename):
+    """
+    Extrae información del dataset a partir del nombre de archivo.
+    Devuelve nombre descriptivo, ID del dataset y variables.
+    """
     try:
-        # Extraer información del archivo
-        filename = Path(file_path)
-        dataset_id = extract_base_dataset_id(filename)
+        # El nombre del archivo suele contener el ID del dataset
+        parts = os.path.basename(filename).split('_')
+        dataset_id = '_'.join(parts[:-1]) if len(parts) > 1 else parts[0].split('.')[0]
         
-        if not dataset_id:
-            logger.error(f"No se pudo extraer un ID de dataset válido del archivo: {file_path}")
-            return False
+        # Mapeo de IDs a nombres descriptivos y variables
+        dataset_mapping = {
+            'cmems_mod_med_phy-cur_anfc_4.2km_P1D-m': {
+                'name': 'Corrientes Mediterráneo',
+                'variables': ['uo', 'vo']
+            },
+            'cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m': {
+                'name': 'CO2 Mediterráneo',
+                'variables': ['fgco2', 'spco2']
+            },
+            'cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m': {
+                'name': 'Nutrientes Mediterráneo',
+                'variables': ['nh4', 'no3', 'po4', 'si']
+            },
+            'cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m': {
+                'name': 'Biología Mediterráneo',
+                'variables': ['nppv', 'o2']
+            },
+            'cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m': {
+                'name': 'Turbidez y Clorofila Mediterráneo',
+                'variables': ['CHL', 'SPM', 'TUR']
+            }
+        }
+        
+        if dataset_id in dataset_mapping:
+            return dataset_mapping[dataset_id]['name'], dataset_id, dataset_mapping[dataset_id]['variables']
+        else:
+            # Si no se encuentra en el mapeo, usar valores por defecto
+            return f"Dataset {dataset_id}", dataset_id, []
             
-        logger.info(f"ID base del dataset extraído: {dataset_id}")
+    except Exception as e:
+        logger.error(f"Error al extraer información del archivo {filename}: {e}")
+        return f"Dataset desconocido", "unknown", []
+
+def detect_variable_thresholds(conn):
+    """
+    Detecta umbrales para variables ambientales y actualiza la tabla de configuraciones.
+    """
+    try:
+        cursor = conn.cursor()
         
-        # Cargar archivo NetCDF
-        dataset = load_netcdf_file(file_path)
+        # Lista de variables para las que calcular umbrales
+        variables = ['o2', 'CHL', 'TUR', 'no3', 'po4', 'fgco2', 'spco2', 'nppv', 'uo', 'vo']
         
-        # Validar archivo
-        if not validate_netcdf(dataset):
-            logger.error(f"Validación fallida para el archivo: {file_path}")
-            # Mover a carpeta de fallidos
-            failed_path = FAILED_DIR / filename.name
-            Path(file_path).rename(failed_path)
-            return False
+        for var in variables:
+            # Calcular estadísticas básicas
+            cursor.execute("""
+                SELECT 
+                    AVG(valor) as promedio,
+                    PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY valor) as p05,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY valor) as p95
+                FROM gloria.variables_ambientales
+                WHERE variable_nombre = %s
+                AND valor IS NOT NULL
+                AND valor > -9990
+            """, (var,))
+            
+            result = cursor.fetchone()
+            if result:
+                avg, p05, p95 = result
+                
+                # Definir umbrales
+                if var in ['o2']:  # Para oxígeno el umbral mínimo es crítico
+                    umbral_min = p05
+                    umbral_max = p95
+                    umbral_critico_min = p05 * 0.8  # 80% del percentil 5
+                    umbral_critico_max = p95 * 1.2  # 120% del percentil 95
+                elif var in ['uo', 'vo']:  # Para corrientes los umbrales positivos y negativos son importantes
+                    umbral_min = p05
+                    umbral_max = p95
+                    umbral_critico_min = p05 * 1.5  # 150% del percentil 5 (más negativo)
+                    umbral_critico_max = p95 * 1.5  # 150% del percentil 95 (más positivo)
+                else:  # Para otras variables
+                    umbral_min = p05
+                    umbral_max = p95
+                    umbral_critico_min = p05 * 0.9  # 90% del percentil 5
+                    umbral_critico_max = p95 * 1.1  # 110% del percentil 95
+                
+                # Guardar en la tabla de configuraciones
+                cursor.execute("""
+                    INSERT INTO gloria.configuraciones
+                    (categoria, clave, valor, descripcion, fecha_creacion, fecha_actualizacion)
+                    VALUES 
+                    ('umbrales', %s || '_min', %s, 'Umbral mínimo para ' || %s, NOW(), NOW()),
+                    ('umbrales', %s || '_max', %s, 'Umbral máximo para ' || %s, NOW(), NOW()),
+                    ('umbrales', %s || '_critico_min', %s, 'Umbral crítico mínimo para ' || %s, NOW(), NOW()),
+                    ('umbrales', %s || '_critico_max', %s, 'Umbral crítico máximo para ' || %s, NOW(), NOW())
+                    ON CONFLICT (categoria, clave) DO UPDATE
+                    SET valor = EXCLUDED.valor, fecha_actualizacion = NOW()
+                """, (
+                    var, str(umbral_min), var,
+                    var, str(umbral_max), var,
+                    var, str(umbral_critico_min), var,
+                    var, str(umbral_critico_max), var
+                ))
+                
+                logger.info(f"Umbrales actualizados para variable {var}")
         
-        # Conectar a la base de datos
+        conn.commit()
+        logger.info("Detección de umbrales completada")
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error al detectar umbrales: {e}")
+
+def main():
+    """Función principal para el procesamiento de datos."""
+    try:
+        # Configurar entorno
+        setup_environment()
+        
+        # Establecer conexión con la base de datos
         conn = get_db_connection()
         
-        # Obtener el ID del dataset en la base de datos
-        dataset_db_id = get_dataset_db_id(conn, dataset_id)
+        # Buscar archivos NetCDF para procesar
+        nc_files = glob.glob(str(DOWNLOAD_DIR / "*.nc"))
         
-        if not dataset_db_id:
-            logger.error(f"Dataset {dataset_id} no encontrado en la base de datos")
-            conn.close()
-            return False
+        if not nc_files:
+            logger.info("No hay archivos nuevos para procesar")
+            return
         
-        # Obtener variables del dataset
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT variables FROM gloria.datasets WHERE id = %s",
-            (dataset_db_id,)
-        )
-        result = cursor.fetchone()
-        cursor.close()
+        logger.info(f"Encontrados {len(nc_files)} archivos para procesar")
         
-        if not result:
-            logger.error(f"No se encontraron variables para el dataset {dataset_id}")
-            conn.close()
-            return False
+        # Procesar cada archivo
+        successfully_processed = 0
         
-        variables = result[0]
-        
-        # Procesar cada variable
-        total_records = 0
-        error_count = 0
-        
-        for variable in variables:
-            if variable not in dataset.variables:
-                logger.warning(f"Variable {variable} no encontrada en el archivo")
-                continue
-            
+        for file_path in nc_files:
             try:
-                # Extraer datos
-                data_df = extract_data_from_netcdf(dataset, variable)
+                # Obtener información del dataset a partir del nombre de archivo
+                dataset_name, dataset_id, variables = get_dataset_info_from_filename(file_path)
                 
-                if data_df is None or data_df.empty:
-                    logger.warning(f"No hay datos para la variable {variable}")
-                    continue
+                # Obtener o crear el dataset en la base de datos
+                dataset_db_id = get_or_create_dataset(conn, dataset_name, dataset_id, variables)
                 
-                # Insertar en la base de datos
-                inserted, errors = insert_data_into_db(conn, data_df, dataset_db_id, variable)
-                total_records += inserted
-                error_count += errors
-            
+                # Procesar el archivo
+                success = process_netcdf_file(file_path, dataset_db_id, conn)
+                
+                if success:
+                    # Mover a directorio de procesados
+                    processed_path = PROCESSED_DIR / os.path.basename(file_path)
+                    shutil.move(file_path, processed_path)
+                    logger.info(f"Archivo movido a {processed_path}")
+                    successfully_processed += 1
+                else:
+                    # Mover a directorio de fallidos
+                    failed_path = FAILED_DIR / os.path.basename(file_path)
+                    shutil.move(file_path, failed_path)
+                    logger.warning(f"Archivo movido a {failed_path} debido a errores")
             except Exception as e:
-                logger.error(f"Error al procesar la variable {variable}: {e}")
-                error_count += 1
+                logger.error(f"Error al procesar archivo {file_path}: {e}")
+                # Intentar mover a directorio de fallidos
+                try:
+                    failed_path = FAILED_DIR / os.path.basename(file_path)
+                    shutil.move(file_path, failed_path)
+                    logger.warning(f"Archivo movido a {failed_path} debido a errores")
+                except:
+                    pass
         
-        # Registrar la importación
-        end_time = datetime.now()
-        status = "completado" if error_count == 0 else "parcial" if total_records > 0 else "fallido"
-        errors_str = f"Errores: {error_count}" if error_count > 0 else None
+        # Actualizar umbrales para las variables
+        if successfully_processed > 0:
+            detect_variable_thresholds(conn)
         
-        register_import_in_db(
-            conn, dataset_db_id, start_time, end_time, total_records, status, errors_str
-        )
-        
-        # Refrescar vistas materializadas si hay nuevos datos
-        if total_records > 0:
-            try:
-                cursor = conn.cursor()
-                cursor.execute("SELECT gloria.refresh_materialized_views()")
-                conn.commit()
-                cursor.close()
-                logger.info("Vistas materializadas actualizadas")
-            except Exception as e:
-                logger.error(f"Error al actualizar vistas materializadas: {e}")
+        logger.info(f"Proceso completado. {successfully_processed}/{len(nc_files)} archivos procesados correctamente")
         
         # Cerrar conexión
         conn.close()
         
-        # Mover archivo a la carpeta de procesados
-        processed_path = PROCESSED_DIR / filename.name
-        Path(file_path).rename(processed_path)
-        
-        logger.info(f"Archivo {filename.name} procesado: {total_records} registros insertados, {error_count} errores")
-        return True
-    
     except Exception as e:
-        logger.error(f"Error al procesar archivo {file_path}: {e}")
-        
-        # En caso de error grave, mover a carpeta de fallidos
-        try:
-            filename = Path(file_path)
-            failed_path = FAILED_DIR / filename.name
-            Path(file_path).rename(failed_path)
-        except Exception as move_error:
-            logger.error(f"Error al mover archivo fallido: {move_error}")
-        
-        return False
-
-def process_all_files(directory=None):
-    """Procesa todos los archivos NetCDF en el directorio especificado."""
-    if directory is None:
-        directory = DATA_DIR
-    
-    # Listar archivos NetCDF
-    netcdf_files = list(Path(directory).glob("*.nc"))
-    
-    if not netcdf_files:
-        logger.info(f"No hay archivos NetCDF para procesar en {directory}")
-        return
-    
-    logger.info(f"Encontrados {len(netcdf_files)} archivos NetCDF para procesar")
-    
-    # Configurar entorno
-    setup_environment()
-    
-    # Procesar cada archivo
-    successful = 0
-    failed = 0
-    
-    for file_path in netcdf_files:
-        logger.info(f"Procesando archivo: {file_path}")
-        
-        if process_netcdf_file(file_path):
-            successful += 1
-        else:
-            failed += 1
-    
-    logger.info(f"Procesamiento completado. Éxitos: {successful}, Fallos: {failed}")
-
-def main():
-    """Función principal."""
-    parser = argparse.ArgumentParser(description='Procesa archivos NetCDF para cargarlos en PostgreSQL.')
-    parser.add_argument('-d', '--directory', help='Directorio donde buscar archivos NetCDF')
-    parser.add_argument('-f', '--file', help='Archivo específico para procesar')
-    
-    args = parser.parse_args()
-    
-    try:
-        if args.file:
-            # Procesar un archivo específico
-            file_path = Path(args.file)
-            if not file_path.exists():
-                logger.error(f"El archivo {file_path} no existe")
-                return 1
-            
-            setup_environment()
-            
-            if process_netcdf_file(file_path):
-                logger.info(f"Archivo {file_path.name} procesado correctamente")
-                return 0
-            else:
-                logger.error(f"Error al procesar el archivo {file_path.name}")
-                return 1
-        else:
-            # Procesar todos los archivos en el directorio
-            directory = args.directory if args.directory else DATA_DIR
-            process_all_files(directory)
-            return 0
-    
-    except Exception as e:
-        logger.error(f"Error en la ejecución principal: {e}")
-        return 1
+        logger.error(f"Error en el proceso principal: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

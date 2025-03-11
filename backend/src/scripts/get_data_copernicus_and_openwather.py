@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script mejorado para la recolección de datos de Copernicus con manejo de errores, 
-prevención de duplicados y descarga incremental.
-
-Versión final corregida para manejar correctamente la respuesta de copernicusmarine.subset()
-
-Este script:
-1. Lee las credenciales desde un archivo .env
-2. Recolecta datos cronológicamente (del más antiguo al más reciente)
-3. Implementa manejo de errores y reintentos en caso de fallos
-4. Verifica para evitar descargas duplicadas
-5. Realiza descarga incremental (solo nuevos datos)
+Script mejorado para la recolección de datos de Copernicus con manejo de errores,
+prevención de duplicados y descarga de datos históricos (1 días atrás).
 
 Proyecto: WebGIS GlorIA
-Fecha: Febrero 2025
+Fecha: Marzo 2025
 """
 
 import os
@@ -27,10 +18,12 @@ import hashlib
 import copernicusmarine
 import pandas as pd
 import numpy as np
+import psycopg2
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import urllib3
+from netCDF4 import Dataset
 
 class EnhancedPoolManager(urllib3.PoolManager):
     def __init__(self, *args, **kwargs):
@@ -69,10 +62,13 @@ MAX_RETRY_ATTEMPTS = 5
 RETRY_DELAY = 180    # Segundos
 ROOT_DIR = Path(os.path.expanduser("~/webGIS-GlorIA"))
 DOWNLOAD_DIR = ROOT_DIR / "databases" / "copernicus_marine"
+PROCESSED_DIR = DOWNLOAD_DIR / "processed"
+FAILED_DIR = DOWNLOAD_DIR / "failed"
 METADATA_FILE = DOWNLOAD_DIR / "metadata.json"
 
 # Crear directorios si no existen
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+for directory in [DOWNLOAD_DIR, PROCESSED_DIR, FAILED_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
 
 def setup_environment():
     """Configura el entorno y carga las credenciales."""
@@ -120,38 +116,36 @@ def save_metadata(metadata):
     except Exception as e:
         logger.error(f"Error al guardar metadatos: {e}")
 
-def get_download_period(dataset_id, metadata):
+def get_download_period(dataset_id, metadata, days_back=1):
     """
-    Determina el período de descarga basado en los metadatos existentes.
-    Para descargas incrementales.
+    Determina el período de descarga para obtener datos históricos.
+    Por defecto, descarga desde hace 1 días hasta hoy.
     """
-    # Período predeterminado: desde el principio del año pasado hasta hoy
-    #hoy = datetime.today()RETRY_DELAY 
-    #fecha_inicio_default = datetime(hoy.year - 1, 1, 1)
-    #fecha_fin = hoy
-
-    hoy = datetime.today()
-    fecha_inicio_default = hoy - timedelta(days=7)  # Solo una semana de datos
-    fecha_fin = hoy
+    # Obtener la fecha actual
+    hoy = datetime.today() - timedelta(days=5)
     
-    # Si hay datos previos, comenzar desde la última fecha descargada
+    # Fecha de inicio: hace N días
+    fecha_inicio = hoy - timedelta(days=days_back)
+    
+    # Si hay datos previos, usar la última fecha para continuar incrementalmente
     if dataset_id in metadata and 'last_download_date' in metadata[dataset_id]:
         last_date_str = metadata[dataset_id]['last_download_date']
         try:
             # Convertir string a datetime y añadir un día para evitar solapamiento
             last_date = datetime.strptime(last_date_str, "%Y-%m-%dT%H:%M:%S")
-            fecha_inicio = last_date + timedelta(days=1)
-            logger.info(f"Descarga incremental para {dataset_id} desde {fecha_inicio.strftime('%Y-%m-%d')}")
+            if last_date > fecha_inicio:
+                fecha_inicio = last_date + timedelta(days=1)
+                logger.info(f"Descarga incremental para {dataset_id} desde {fecha_inicio.strftime('%Y-%m-%d')}")
+            else:
+                logger.info(f"Usando fecha de {days_back} días atrás para {dataset_id} ({fecha_inicio.strftime('%Y-%m-%d')})")
         except Exception as e:
-            logger.warning(f"Error al parsear última fecha de descarga: {e}. Usando fecha predeterminada.")
-            fecha_inicio = fecha_inicio_default
+            logger.warning(f"Error al parsear última fecha de descarga: {e}. Usando fecha de {days_back} días atrás.")
     else:
-        fecha_inicio = fecha_inicio_default
-        logger.info(f"Primera descarga para {dataset_id} desde {fecha_inicio.strftime('%Y-%m-%d')}")
+        logger.info(f"Primera descarga para {dataset_id} desde {fecha_inicio.strftime('%Y-%m-%d')} (hace {days_back} días)")
     
     # Formatear las fechas al formato que necesita la consulta
     fecha_inicio_str = fecha_inicio.strftime("%Y-%m-%dT%H:%M:%S")
-    fecha_fin_str = fecha_fin.strftime("%Y-%m-%dT%H:%M:%S")
+    fecha_fin_str = hoy.strftime("%Y-%m-%dT%H:%M:%S")
     
     return fecha_inicio_str, fecha_fin_str
 
@@ -190,8 +184,8 @@ def find_last_downloaded_file(dataset_id):
         return files[0]
     return None
 
-def download_with_retry(dataset_id, variables, min_lon, max_lon, min_lat, max_lat, start_date, end_date, min_depth=None, max_depth=None):
-    """Descarga datos con reintentos en caso de error."""
+def download_with_retry(dataset_id, variables, min_lon, max_lon, min_lat, max_lat, min_depth=None, max_depth=None):
+    """Descarga datos con reintentos en caso de error. Si no se especifican fechas, descarga todo el rango disponible."""
     attempts = 0
     
     while attempts < MAX_RETRY_ATTEMPTS:
@@ -203,7 +197,8 @@ def download_with_retry(dataset_id, variables, min_lon, max_lon, min_lat, max_la
             copernicusmarine_logger = logging.getLogger("copernicusmarine")
             copernicusmarine_logger.addHandler(log_capture)
             
-            # Llamada a la API de Copernicus
+            # Llamada a la API de Copernicus sin especificar fechas
+            # Esto hará que se descargue todo el rango de tiempo disponible
             copernicusmarine.subset(
                 dataset_id=dataset_id,
                 variables=variables,
@@ -211,10 +206,9 @@ def download_with_retry(dataset_id, variables, min_lon, max_lon, min_lat, max_la
                 maximum_longitude=max_lon,
                 minimum_latitude=min_lat,
                 maximum_latitude=max_lat,
-                start_datetime=start_date,
-                end_datetime=end_date,
                 minimum_depth=min_depth,
                 maximum_depth=max_depth,
+                # Sin start_datetime ni end_datetime
             )
             
             # Elimina el capturador de logs
@@ -251,14 +245,10 @@ def download_with_retry(dataset_id, variables, min_lon, max_lon, min_lat, max_la
             time.sleep(RETRY_DELAY)
 
 def download_and_save(dataset_id, variables, min_lon, max_lon, min_lat, max_lat, metadata, 
-                     start_date=None, end_date=None, min_depth=None, max_depth=None):
+                     min_depth=None, max_depth=None, download_all=True):
     """Descarga y guarda datos, verifica duplicados y actualiza metadatos."""
-    # Determinar el período de descarga
-    if not start_date or not end_date:
-        start_date, end_date = get_download_period(dataset_id, metadata)
-    
     # Iniciar el proceso de descarga
-    logger.info(f"Descargando datos de {dataset_id} desde {start_date} hasta {end_date}")
+    logger.info(f"Descargando todos los datos disponibles para {dataset_id}")
     
     try:
         # Descargar los datos con reintentos
@@ -269,10 +259,9 @@ def download_and_save(dataset_id, variables, min_lon, max_lon, min_lat, max_lat,
             max_lon=max_lon,
             min_lat=min_lat,
             max_lat=max_lat,
-            start_date=start_date,
-            end_date=end_date,
             min_depth=min_depth,
             max_depth=max_depth,
+            # Sin parámetros de fecha
         )
         
         # Verificar que el archivo existe
@@ -318,10 +307,34 @@ def download_and_save(dataset_id, variables, min_lon, max_lon, min_lat, max_lat,
         metadata[dataset_id]['last_download_date'] = end_date
         
         logger.info(f"Datos guardados en: {downloaded_file}")
-        return True
+        return downloaded_file
         
     except Exception as e:
         logger.error(f"Error al procesar {dataset_id}: {e}")
+        return False
+
+def verify_netcdf_content(file_path):
+    """Verifica que el archivo NetCDF tenga contenido válido."""
+    try:
+        with Dataset(file_path, 'r') as nc:
+            # Verificar que hay variables y que tienen datos
+            has_data = False
+            for var_name in nc.variables:
+                var = nc.variables[var_name]
+                # Verificar que no es una variable de dimensión y tiene datos
+                if len(var.shape) > 0 and var.size > 0:
+                    # Intentar leer algunos datos para verificar
+                    try:
+                        sample = var[:]
+                        if np.any(~np.isnan(sample)):
+                            has_data = True
+                            break
+                    except:
+                        continue
+            
+            return has_data
+    except Exception as e:
+        logger.error(f"Error al verificar contenido de NetCDF {file_path}: {e}")
         return False
 
 def main():
@@ -333,62 +346,148 @@ def main():
         # Cargar metadatos existentes
         metadata = load_metadata()
         
-        # Lista de datasets a descargar
+        # Lista de datasets a descargar con foco en la Comunidad Valenciana y Murcia
         datasets = [
+            # Corrientes (Physical - Currents)
             {
-                "id": "cmems_mod_med_phy-cur_anfc_4.2km_P1D-m",
+                "id": "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m",
                 "variables": ["uo", "vo"],
                 "min_lon": -1.5,
-                "max_lon": 0.7,
-                "min_lat": 37.5,
-                "max_lat": 40.5,
+                "max_lon": 1.0,  # Ampliado para cubrir mejor la costa valenciana
+                "min_lat": 37.0,  # Desde Murcia
+                "max_lat": 40.5,  # Hasta norte de Valencia
                 "min_depth": 1.0182366371154785,
                 "max_depth": 1.0182366371154785,
+                "days_back": 1,  # Datos de 1 días atrás
             },
+            
+            # CO2 (Biogeochemical - Carbon Dioxide)
             {
                 "id": "cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m",
                 "variables": ["fgco2", "spco2"],
                 "min_lon": -1.5,
-                "max_lon": 0.7,
-                "min_lat": 37.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
                 "max_lat": 40.5,
+                "days_back": 1,
             },
+            
+            # Nutrientes (Biogeochemical - Nutrients)
             {
                 "id": "cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m",
                 "variables": ["nh4", "no3", "po4", "si"],
                 "min_lon": -1.5,
-                "max_lon": 0.7,
-                "min_lat": 37.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
                 "max_lat": 40.5,
                 "min_depth": 1.0182366371154785,
                 "max_depth": 1.0182366371154785,
+                "days_back": 1,
             },
+            
+            # Biología (Biogeochemical - Biology)
             {
                 "id": "cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m",
                 "variables": ["nppv", "o2"],
-                "min_lon": -5.541666507720947,
-                "max_lon": 36.29166793823242,
-                "min_lat": 30.1875,
-                "max_lat": 45.97916793823242,
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
                 "min_depth": 1.0182366371154785,
                 "max_depth": 1.0182366371154785,
+                "days_back": 1,
             },
+            
+            # Turbidez y Clorofila (Observation - Ocean Color)
             {
                 "id": "cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m",
                 "variables": ["CHL", "SPM", "TUR"],
-                "min_lon": -5.999338624338596,
-                "max_lon": 36.999338624338655,
-                "min_lat": 30.000462962962963,
-                "max_lat": 45.99953703703704,
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "days_back": 1,
+            },
+            
+            # Carbonates (Biogeochemical - Carbonates)
+            {
+                "id": "cmems_mod_med_bgc-car_anfc_4.2km_P1D-m",
+                "variables": ["dissic", "ph", "talk"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "min_depth": 1.0182366371154785,
+                "max_depth": 1.0182366371154785,
+                "days_back": 1,
+            },
+            
+            # Plankton Functional Types (Biogeochemical - PFT)
+            {
+                "id": "cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m",
+                "variables": ["chl", "diatoChla", "nanoChla", "picoChla"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "min_depth": 1.0182366371154785,
+                "max_depth": 1.0182366371154785,
+                "days_back": 1,
+            },
+            
+            # Heat Flux (Physical - Heat Flux)
+            {
+                "id": "cmems_mod_med_phy-hflux_my_4.2km_P1D-m",
+                "variables": ["hfds", "hfls", "hfss"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "days_back": 1,
+            },
+            
+            # Salinity (Physical - Salinity)
+            {
+                "id": "med-cmcc-sal-rean-d",
+                "variables": ["so"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "min_depth": 1.0182366371154785,
+                "max_depth": 1.0182366371154785,
+                "days_back": 1,
+            },
+            
+            # Sea Surface Height (Physical - SSH)
+            {
+                "id": "med-cmcc-ssh-rean-d",
+                "variables": ["zos"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "days_back": 1,
+            },
+            
+            # Water Flux (Physical - Water Flux)
+            {
+                "id": "cmems_mod_med_phy-wflux_my_4.2km_P1D-m",
+                "variables": ["evs", "pr"],
+                "min_lon": -1.5,
+                "max_lon": 1.0,
+                "min_lat": 37.0,
+                "max_lat": 40.5,
+                "days_back": 1,
             },
         ]
         
-        # Contador para estadísticas
-        successful_downloads = 0
+        # Lista para guardar los archivos descargados correctamente
+        downloaded_files = []
         
         # Llamada a la función de descarga para cada dataset
         for dataset in datasets:
-            success = download_and_save(
+            result = download_and_save(
                 dataset_id=dataset["id"],
                 variables=dataset["variables"],
                 min_lon=dataset.get("min_lon"),
@@ -396,19 +495,39 @@ def main():
                 min_lat=dataset.get("min_lat"),
                 max_lat=dataset.get("max_lat"),
                 metadata=metadata,
-                start_date=dataset.get("start_date"),
-                end_date=dataset.get("end_date"),
                 min_depth=dataset.get("min_depth"),
-                max_depth=dataset.get("max_depth"),
+                max_depth=dataset.get("max_depth")
+                # Sin parámetros de fecha
             )
             
-            if success:
-                successful_downloads += 1
+            if result:
+                # Verificar que el archivo tiene contenido válido
+                if verify_netcdf_content(result):
+                    downloaded_files.append({
+                        "file_path": result,
+                        "dataset_id": dataset["id"],
+                        "variables": dataset["variables"]
+                    })
+                    logger.info(f"Archivo válido: {result}")
+                else:
+                    logger.warning(f"Archivo sin datos válidos: {result}")
+                    # Mover a directorio de fallidos
+                    import shutil
+                    failure_dest = FAILED_DIR / os.path.basename(result)
+                    shutil.move(result, failure_dest)
+                    logger.info(f"Archivo movido a {failure_dest}")
         
         # Guardar metadatos actualizados
         save_metadata(metadata)
         
-        logger.info(f"Proceso completado. Descargas exitosas: {successful_downloads}/{len(datasets)}")
+        logger.info(f"Proceso completado. Archivos descargados: {len(downloaded_files)}/{len(datasets)}")
+        
+        # Si hay archivos descargados, proceder con el procesamiento
+        if downloaded_files:
+            logger.info("Iniciando el procesamiento de datos...")
+            # Llamar al script de procesamiento
+            process_command = f"{sys.executable} {ROOT_DIR}/backend/src/scripts/process_data.py"
+            os.system(process_command)
         
     except Exception as e:
         logger.error(f"Error en el proceso principal: {e}")

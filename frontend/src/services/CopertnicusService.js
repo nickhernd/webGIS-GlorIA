@@ -1,4 +1,3 @@
-// frontend/src/services/CopertnicusService.js
 import axios from 'axios';
 
 // Configuración base para axios específica para Copernicus
