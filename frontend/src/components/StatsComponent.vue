@@ -16,35 +16,28 @@
         <button class="error-close" @click="clearError">&times;</button>
       </div>
     </div>
-    
-    <!-- Dashboard Controls -->
-    <DashboardControls
-      :initial-variables="[selectedVariable]"
-      :initial-chart-type="chartType"
-      @config-changed="handleConfigChange"
-      @refresh-data="loadHistoricalData"
-      @export-data="exportData"
-      @auto-refresh-changed="handleAutoRefreshChange"
-      @refresh-interval-changed="handleRefreshIntervalChange"
-    />
 
-    <!-- Control de fechas personalizado -->
+    <!-- Date Range Picker -->
     <DateRangePicker 
       :initial-start-date="startDate"
       :initial-end-date="endDate"
       @date-range-changed="handleDateRangeChange"
     />
     
-    <!-- Tabs de navegación -->
-    <div class="stats-tabs">
-      <div 
-        v-for="tab in tabs" 
-        :key="tab.id" 
-        class="tab" 
-        :class="{ active: activeTab === tab.id }"
-        @click="activeTab = tab.id"
-      >
-        {{ tab.name }}
+    <!-- Variable Selector -->
+    <div class="variable-selector">
+      <h3>Variables a mostrar</h3>
+      <div class="variable-options">
+        <div 
+          v-for="variable in availableVariables" 
+          :key="variable.id"
+          class="variable-option"
+          :class="{ 'selected': selectedVariables.includes(variable.id) }"
+          @click="toggleVariable(variable.id)"
+        >
+          <div class="color-indicator" :style="{ backgroundColor: getVariableColor(variable.id) }"></div>
+          <span class="variable-name">{{ variable.name }}</span>
+        </div>
       </div>
     </div>
 
@@ -54,192 +47,81 @@
       <div class="loading-text">Cargando datos...</div>
     </div>
 
-    <!-- Contenido de las pestañas -->
-    <div class="tab-content" v-if="!isLoading">
-      <!-- Panel de resumen -->
-      <div v-if="activeTab === 'summary'" class="tab-pane">
-        <div v-if="noDataAvailable" class="no-data-message">
-          <div class="no-data-icon">📊</div>
-          <h3>No hay datos disponibles</h3>
-          <p>No se encontraron datos para la piscifactoría y variable seleccionadas. Por favor, intente con otra selección o contacte con soporte técnico.</p>
-          <button class="refresh-btn" @click="loadHistoricalData">
-            <span class="refresh-icon">🔄</span> Reintentar
-          </button>
-        </div>
-        
-        <template v-else>
-          <div class="indicators-grid">
-            <div class="indicator" v-for="(indicator, key) in indicators" :key="key">
-              <div class="indicator-title">{{ indicator.name }}</div>
-              <div class="indicator-value" :class="indicator.status + '-value'">
-                {{ indicator.value }}{{ indicator.unit }}
-              </div>
-              <div class="indicator-trend">
-                <span :class="indicator.trend === 'up' ? 'trend-up' : indicator.trend === 'down' ? 'trend-down' : ''">
-                  {{ indicator.trend === 'up' ? '↑' : indicator.trend === 'down' ? '↓' : '→' }}
-                  {{ indicator.min }} - {{ indicator.max }}{{ indicator.unit }}
-                </span>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Gráfico principal con canvas para Chart.js -->
-          <div class="main-chart-section">
-            <h3>Serie Temporal - {{ getVariableName(selectedVariable) }}</h3>
-            <div class="chart-container">
-              <ChartComponent 
-                v-if="historicalData.length > 0" 
-                :chartData="historicalData" 
-                :chartType="chartType" 
-                :chartLabel="getVariableName(selectedVariable)"
-              />
-              <div v-else class="no-data-message">
-                No hay datos disponibles para mostrar en el gráfico.
-              </div>
-            </div>
-            <div class="chart-controls">
-              <div class="chart-control-item">
-                <label for="variable-select">Variable:</label>
-                <select id="variable-select" v-model="selectedVariable" @change="loadHistoricalData">
-                  <option value="o2">Oxígeno (O2)</option>
-                  <option value="CHL">Clorofila (CHL)</option>
-                  <option value="TUR">Turbidez (TUR)</option>
-                  <option value="no3">Nitrato (NO3)</option>
-                  <option value="po4">Fosfato (PO4)</option>
-                  <option value="uo">Corriente U (UO)</option>
-                  <option value="vo">Corriente V (VO)</option>
-                  <option value="nppv">Productividad (NPPV)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- Heatmap Temporal -->
-          <TemporalHeatmap 
-            v-if="dailyHeatmapData.length > 0"
-            :variable="selectedVariable"
-            :variable-name="getVariableName(selectedVariable)"
-            :data="dailyHeatmapData"
-            :loading="isLoading"
-            @cell-click="handleHeatmapCellClick"
-          />
-          
-          <!-- Resumen de alertas -->
-          <div class="alerts-summary-section">
-            <h3>Resumen de Alertas</h3>
-            <div v-if="alerts.length === 0" class="no-alerts">
-              No hay alertas activas para esta piscifactoría.
-            </div>
-            <div v-else class="alerts-list">
-              <div v-for="(alert, index) in alerts" :key="index" 
-                  class="alert-item" 
-                  :class="alert.nivel">
-                <div class="alert-title">
-                  <span class="alert-icon">
-                    {{ alert.nivel === 'alta' ? '⚠️' : alert.nivel === 'media' ? '⚠' : 'ℹ️' }}
-                  </span>
-                  {{ alert.titulo }}
-                </div>
-                <div class="alert-message">{{ alert.mensaje }}</div>
-                <div class="alert-time">{{ alert.tiempoRelativo }}</div>
-              </div>
-            </div>
-          </div>
-        </template>
+    <!-- Main Chart Section -->
+    <div class="main-chart-section" v-if="!isLoading">
+      <h3>Serie Temporal</h3>
+      
+      <div v-if="noDataAvailable" class="no-data-message">
+        <div class="no-data-icon">📊</div>
+        <h3>No hay datos disponibles</h3>
+        <p>No se encontraron datos para la piscifactoría y variables seleccionadas. Por favor, intente con otra selección.</p>
+        <button class="refresh-btn" @click="loadHistoricalData">
+          <span class="refresh-icon">🔄</span> Reintentar
+        </button>
       </div>
       
-      <!-- Panel de alertas detalladas -->
-      <div v-if="activeTab === 'alerts'" class="tab-pane">
-        <h3>Alertas Activas</h3>
-        <div class="alerts-list-detailed">
-          <div v-if="alerts.length === 0" class="no-alerts">
-            No hay alertas activas en este momento.
-          </div>
-          <div v-for="(alert, index) in alerts" :key="index" 
-               class="alert-item-detailed" 
-               :class="alert.nivel">
-            <div class="alert-header">
-              <div class="alert-title">
-                <span class="alert-icon">
-                  {{ alert.nivel === 'alta' ? '⚠️' : alert.nivel === 'media' ? '⚠' : 'ℹ️' }}
-                </span>
-                {{ alert.titulo }}
-              </div>
-              <div class="alert-time">{{ alert.tiempoRelativo }}</div>
-            </div>
-            <div class="alert-message">{{ alert.mensaje }}</div>
-            <div class="alert-actions">
-              <button class="action-btn resolve" @click="resolveAlert(alert.id)">Marcar como resuelta</button>
-              <button class="action-btn details" @click="viewAlertDetails(alert.id)">Ver detalles</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Panel de predicciones -->
-      <div v-if="activeTab === 'predictions'" class="tab-pane">
-        <h3>Predicciones y Análisis</h3>
-        
-        <div v-if="noDataAvailable" class="no-data-message">
-          <div class="no-data-icon">📈</div>
-          <h3>No hay datos para realizar predicciones</h3>
-          <p>Se necesitan datos históricos suficientes para generar predicciones. Por favor, seleccione otra variable o contacte con soporte técnico.</p>
-          <button class="refresh-btn" @click="loadHistoricalData">
-            <span class="refresh-icon">🔄</span> Reintentar
-          </button>
-        </div>
-        
-        <!-- Gráfico de predicción mejorado -->
-        <PredictionChart 
-          v-else
-          :variable="selectedVariable"
-          :variable-name="getVariableName(selectedVariable)"
-          :historical-data="historicalData"
-          :predicted-data="predictedData"
-          :loading="isLoading"
-          :thresholds="getThresholds(selectedVariable)"
+      <div v-else class="chart-container">
+        <!-- Enhanced chart component that supports multiple data series -->
+        <ChartComponent 
+          :multipleData="chartDataSeries"
+          chartType="line"
+          :chartOptions="chartOptions"
         />
-      </div>
-      
-      <!-- Panel de datos ambientales -->
-      <div v-if="activeTab === 'environment'" class="tab-pane">
-        <h3>Datos Ambientales</h3>
         
-        <div v-if="noDataAvailable" class="no-data-message">
-          <div class="no-data-icon">🌊</div>
-          <h3>No hay datos ambientales disponibles</h3>
-          <p>No se encontraron datos ambientales para la piscifactoría seleccionada. Por favor, intente más tarde o contacte con soporte técnico.</p>
-          <button class="refresh-btn" @click="loadEnvironmentalData">
-            <span class="refresh-icon">🔄</span> Reintentar
-          </button>
+        <!-- Chart controls -->
+        <div class="chart-controls">
+          <div class="chart-type-selector">
+            <label for="chart-type">Tipo de gráfico:</label>
+            <select id="chart-type" v-model="chartType" @change="updateChartType">
+              <option value="line">Línea</option>
+              <option value="bar">Barras</option>
+              <option value="scatter">Dispersión</option>
+            </select>
+          </div>
+          
+          <div class="chart-actions">
+            <button class="btn-action" @click="exportData" :disabled="isExporting">
+              <span class="icon">{{ isExporting ? '⏳' : '📊' }}</span> 
+              {{ isExporting ? 'Exportando...' : 'Exportar datos' }}
+            </button>
+            <button class="btn-action" @click="resetZoom">
+              <span class="icon">🔍</span> Resetear zoom
+            </button>
+          </div>
         </div>
-        
-        <div v-else class="environment-grid">
-          <div class="env-panel" v-for="(data, key) in environmentalData" :key="key">
-            <h4>{{ getVariableName(key) }}</h4>
-            <div class="gauge-container">
-              <div class="gauge">
-                <div class="gauge-fill" :style="{
-                  transform: `rotate(${calculateRotation(data.current, data.min, data.max)}deg)`,
-                  backgroundColor: getStatusColor(data.status)
-                }"></div>
-                <div class="gauge-center">
-                  <div class="gauge-value">{{ data.current }}{{ data.unit }}</div>
-                </div>
-              </div>
+      </div>
+    </div>
+    
+    <!-- Key Indicators Section -->
+    <div class="indicators-section" v-if="!isLoading && selectedFarm && !noDataAvailable">
+      <h3>Indicadores Clave</h3>
+      
+      <div class="indicators-grid">
+        <div 
+          v-for="variable in selectedVariables" 
+          :key="variable"
+          class="indicator-card"
+        >
+          <div class="indicator-header">
+            <h4>{{ getVariableName(variable) }}</h4>
+          </div>
+          <div class="indicator-content">
+            <div class="indicator-value">
+              {{ getLatestValue(variable) }}
+              <span class="unit">{{ getVariableUnit(variable) }}</span>
             </div>
-            <div class="env-stats">
-              <div class="env-stat">
-                <span class="label">Min:</span>
-                <span class="value">{{ data.min }}{{ data.unit }}</span>
+            <div class="indicator-stats">
+              <div class="stat">
+                <span class="stat-label">Min</span>
+                <span class="stat-value">{{ getMinValue(variable) }}</span>
               </div>
-              <div class="env-stat">
-                <span class="label">Promedio:</span>
-                <span class="value">{{ data.avg }}{{ data.unit }}</span>
+              <div class="stat">
+                <span class="stat-label">Prom</span>
+                <span class="stat-value">{{ getAvgValue(variable) }}</span>
               </div>
-              <div class="env-stat">
-                <span class="label">Max:</span>
-                <span class="value">{{ data.max }}{{ data.unit }}</span>
+              <div class="stat">
+                <span class="stat-label">Max</span>
+                <span class="stat-value">{{ getMaxValue(variable) }}</span>
               </div>
             </div>
           </div>
@@ -251,23 +133,15 @@
 
 <script>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import Chart from 'chart.js/auto';
 import DataService from '../services/DataService';
 import DateRangePicker from './DateRangePicker.vue';
-import TemporalHeatmap from './TemporalHeatmap.vue';
-import PredictionChart from './PredictionChart.vue';
-import DashboardControls from './DashboardControls.vue';
-import 'chartjs-plugin-annotation'; 
 import ChartComponent from './ChartComponent.vue';
 
 export default {
   name: 'StatsComponent',
   components: {
     DateRangePicker,
-    TemporalHeatmap,
-    PredictionChart,
-    DashboardControls,
-    ChartComponent 
+    ChartComponent
   },
   emits: ['variable-changed', 'error', 'refresh-farm-data'],
   props: {
@@ -278,295 +152,261 @@ export default {
     selectedFarm: {
       type: Object,
       default: null
-    },
-    date: {
-      type: Date,
-      default: () => new Date()
     }
   },
   
   setup(props, { emit }) {
-    // Referencias para gráficos
-    const chartCanvas = ref(null);
-    let mainChart = null;
-    
-    // Variables de estado
-    const selectedVariable = ref('o2');
-    const selectedTimeframe = ref('week');
-    const activeTab = ref('summary');
-    const historicalData = ref([]);
+    // State variables
     const isLoading = ref(false);
+    const isExporting = ref(false);
     const errorMessage = ref('');
     const noDataAvailable = ref(false);
-    
-    // Nuevas variables de estado
-    const dailyHeatmapData = ref([]);
-    const startDate = ref(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)); // 7 días atrás
+    const startDate = ref(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)); // 7 days ago
     const endDate = ref(new Date());
     const chartType = ref('line');
-    const showThresholds = ref(true);
     const autoRefreshInterval = ref(null);
-    const refreshIntervalSeconds = ref(300); // 5 minutos
-    const predictedData = ref([]);
     
-    // Pestañas disponibles
-    const tabs = [
-      { id: 'summary', name: 'Resumen' },
-      { id: 'alerts', name: 'Alertas' },
-      { id: 'predictions', name: 'Predicciones' },
-      { id: 'environment', name: 'Datos Ambientales' },
+    // Data for selected variables
+    const variableData = ref({});
+    const selectedVariables = ref(['temperature']); // Default selected variable
+
+    // Available variables
+    const availableVariables = [
+      { id: 'temperature', name: 'Temperatura', unit: '°C' },
+      { id: 'o2', name: 'Oxígeno', unit: 'mg/L' },
+      { id: 'salinity', name: 'Salinidad', unit: 'ppt' },
+      { id: 'currents', name: 'Corrientes', unit: 'm/s' },
+      { id: 'no3', name: 'Nitrato', unit: 'mmol/m³' },
+      { id: 'po4', name: 'Fosfato', unit: 'mmol/m³' },
+      { id: 'CHL', name: 'Clorofila', unit: 'mg/m³' },
+      { id: 'TUR', name: 'Turbidez', unit: 'NTU' }
     ];
     
-    // Indicadores clave calculados a partir de la piscifactoría seleccionada
-    const indicators = computed(() => {
-      if (!props.selectedFarm || !props.selectedFarm.stats) {
-        return {};
-      }
-      
-      const stats = props.selectedFarm.stats;
-      const result = {};
-      
-      // Convertir los datos de stats en el formato para los indicadores
-      Object.keys(stats).forEach(key => {
-        const data = stats[key];
-        result[key] = {
-          name: getVariableName(key),
-          value: data.current,
-          unit: getUnitByVariable(key),
-          trend: data.trend,
-          status: data.status,
-          min: data.min,
-          max: data.max
-        };
-      });
-      
-      return result;
-    });
-    
-    // Alertas de la piscifactoría seleccionada
-    const alerts = computed(() => {
-      if (!props.selectedFarm || !props.selectedFarm.alerts) {
-        return [];
-      }
-      
-      return props.selectedFarm.alerts;
-    });
-    
-    // Datos ambientales para gráficos y medidores
-    const environmentalData = computed(() => {
-      if (!props.selectedFarm || !props.selectedFarm.stats) {
-        return {};
-      }
-      
-      const stats = props.selectedFarm.stats;
-      const result = {};
-      
-      // Convertir los datos de stats en el formato para los datos ambientales
-      Object.keys(stats).forEach(key => {
-        const data = stats[key];
-        result[key] = {
-          current: data.current,
-          min: data.min,
-          max: data.max,
-          avg: data.avg,
-          status: data.status,
-          unit: getUnitByVariable(key)
-        };
-      });
-      
-      return result;
-    });
-    
-    // Método para mostrar error
-    const showError = (message) => {
-      errorMessage.value = message;
-      emit('error', message);
-      
-      // Limpiar el error automáticamente después de 10 segundos
-      setTimeout(() => {
-        if (errorMessage.value === message) {
-          clearError();
+    // Chart configuration options
+    const chartOptions = ref({
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y;
+              const variableId = selectedVariables.value.find(v => 
+                getVariableName(v) === label);
+              const unit = getVariableUnit(variableId);
+              return `${label}: ${value.toFixed(2)} ${unit}`;
+            }
+          }
+        },
+        zoom: {
+          zoom: {
+            wheel: {
+              enabled: true,
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'xy'
+          },
+          pan: {
+            enabled: true,
+            mode: 'xy'
+          }
         }
-      }, 10000);
-    };
-    
-    // Método para limpiar error
-    const clearError = () => {
-      errorMessage.value = '';
-    };
-    
-    // Manejar cambios en el rango de fechas
-    const handleDateRangeChange = (range) => {
-      console.log('Rango de fechas cambiado:', range);
-      
-      // Actualizar fechas
-      startDate.value = range.start;
-      endDate.value = range.end;
-      selectedTimeframe.value = range.preset || 'custom';
-      
-      // Recargar datos
-      loadHistoricalData();
-    };
-    
-    // Manejar clics en celdas del heatmap
-    const handleHeatmapCellClick = (cellData) => {
-      console.log('Celda seleccionada en heatmap:', cellData);
-      
-      if (!cellData || !cellData.date) return;
-      
-      // Actualizar fecha seleccionada
-      const selectedDate = new Date(cellData.date);
-      startDate.value = selectedDate;
-      endDate.value = new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000); // +1 día
-      selectedTimeframe.value = 'day';
-      
-      // Cargar datos para la fecha seleccionada
-      loadHistoricalData();
-    };
-    
-    // Manejar cambios en la configuración del dashboard
-    const handleConfigChange = (config) => {
-      console.log('Configuración cambiada:', config);
-      
-      // Actualizar la variable seleccionada (si ha cambiado)
-      if (config.variables && config.variables.length > 0 && config.variables[0] !== selectedVariable.value) {
-        selectedVariable.value = config.variables[0];
+      },
+      scales: {
+        y: {
+          title: {
+            display: true,
+            text: 'Valor'
+          }
+        }
       }
-      
-      // Actualizar tipo de gráfico
-      if (config.chartType) {
-        chartType.value = config.chartType;
-      }
-      
-      // Actualizar otras configuraciones según sea necesario
-      if (config.showThresholds !== undefined) {
-        showThresholds.value = config.showThresholds;
-      }
-      
-      // Recargar datos si es necesario
-      loadHistoricalData();
-    };
+    });
     
-    // Exportar datos
-    const exportData = (format) => {
-      console.log('Exportando datos en formato:', format);
+    // Prepare multiple data series for the chart
+    const chartDataSeries = computed(() => {
+      return selectedVariables.value.map(variable => {
+        return {
+          label: getVariableName(variable),
+          data: variableData.value[variable] || [],
+          color: {
+            border: getVariableColor(variable),
+            background: getVariableColor(variable, 0.2)
+          }
+        };
+      }).filter(series => series.data.length > 0);
+    });
+
+    // Toggle variable selection
+    const toggleVariable = (variableId) => {
+      const index = selectedVariables.value.indexOf(variableId);
       
-      if (historicalData.value.length === 0) {
-        showError('No hay datos disponibles para exportar');
-        return;
-      }
-      
-      let filename = `datos_${selectedVariable.value}_${new Date().toISOString().split('T')[0]}`;
-      
-      // Implementar según el formato
-      switch (format) {
-        case 'csv':
-          exportAsCSV(filename);
-          break;
-        case 'excel':
-          showError('Exportación a Excel no implementada');
-          break;
-        case 'json':
-          exportAsJSON(filename);
-          break;
-        default:
-          showError('Formato de exportación no soportado: ' + format);
-      }
-    };
-    
-    // Exportar como CSV
-    const exportAsCSV = (filename) => {
-      // Crear contenido CSV
-      let csvContent = 'fecha,valor\n';
-      
-      historicalData.value.forEach(item => {
-        csvContent += `${item.fecha},${item.valor}\n`;
-      });
-      
-      // Crear blob y descargar
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `${filename}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url); // Liberar memoria
-    };
-    
-    // Exportar como JSON
-    const exportAsJSON = (filename) => {
-      const jsonContent = JSON.stringify(historicalData.value, null, 2);
-      const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `${filename}.json`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url); // Liberar memoria
-    };
-    
-    // Manejar cambios en la actualización automática
-    const handleAutoRefreshChange = (enabled) => {
-      console.log('Actualización automática:', enabled ? 'activada' : 'desactivada');
-      
-      if (enabled) {
-        // Iniciar temporizador para actualización automática
-        autoRefreshInterval.value = setInterval(() => {
-          loadHistoricalData();
-        }, refreshIntervalSeconds.value * 1000);
+      if (index === -1) {
+        // Add the variable
+        selectedVariables.value.push(variableId);
+        
+        // Load data for the new variable if we don't already have it
+        if (!variableData.value[variableId]) {
+          loadDataForVariable(variableId);
+        }
       } else {
-        // Detener temporizador
-        if (autoRefreshInterval.value) {
-          clearInterval(autoRefreshInterval.value);
-          autoRefreshInterval.value = null;
+        // Remove the variable if it's not the last one selected
+        if (selectedVariables.value.length > 1) {
+          selectedVariables.value.splice(index, 1);
         }
       }
     };
     
-    // Manejar cambios en el intervalo de actualización
-    const handleRefreshIntervalChange = (seconds) => {
-      console.log('Intervalo de actualización cambiado a', seconds, 'segundos');
-      
-      if (!seconds || isNaN(seconds) || seconds < 10) {
-        showError('El intervalo de actualización debe ser al menos 10 segundos');
-        return;
-      }
-      
-      refreshIntervalSeconds.value = seconds;
-      
-      // Reiniciar el intervalo si está activo
-      if (autoRefreshInterval.value) {
-        clearInterval(autoRefreshInterval.value);
-        autoRefreshInterval.value = setInterval(() => {
-          loadHistoricalData();
-        }, refreshIntervalSeconds.value * 1000);
-      }
-    };
-    
-    // Obtener umbrales para predicciones
-    const getThresholds = (variable) => {
-      const thresholds = {
-        'o2': { min: 5, max: null },
-        'temperature': { min: null, max: 26 },
-        'salinity': { min: 34, max: 38 },
-        'currents': { min: null, max: 0.8 },
-        'CHL': { min: null, max: 5 },
-        'TUR': { min: null, max: 10 },
-        'no3': { min: null, max: 20 },
-        'po4': { min: null, max: 1.5 },
-        'nh4': { min: null, max: 1 }
+    // Get color for a variable
+    const getVariableColor = (variableId, alpha = 1) => {
+      const colors = {
+        'temperature': `rgba(255, 99, 132, ${alpha})`,
+        'o2': `rgba(54, 162, 235, ${alpha})`,
+        'salinity': `rgba(153, 102, 255, ${alpha})`,
+        'currents': `rgba(255, 206, 86, ${alpha})`,
+        'no3': `rgba(75, 192, 192, ${alpha})`,
+        'po4': `rgba(255, 159, 64, ${alpha})`,
+        'CHL': `rgba(46, 204, 113, ${alpha})`,
+        'TUR': `rgba(149, 165, 166, ${alpha})`
       };
       
-      return thresholds[variable] || { min: null, max: null };
+      return colors[variableId] || `rgba(128, 128, 128, ${alpha})`;
     };
     
-    // Cargar datos históricos para la gráfica
+    // Get variable name
+    const getVariableName = (variableId) => {
+      const variable = availableVariables.find(v => v.id === variableId);
+      return variable ? variable.name : variableId;
+    };
+    
+    // Get variable unit
+    const getVariableUnit = (variableId) => {
+      const variable = availableVariables.find(v => v.id === variableId);
+      return variable ? variable.unit : '';
+    };
+    
+    // Reset chart zoom
+    const resetZoom = () => {
+      // Implementation depends on the chart library's API
+      // This is a placeholder
+    };
+    
+    // Update chart type
+    const updateChartType = () => {
+      // The chart component will react to the chartType change
+    };
+    
+    // Get latest value for a variable
+    const getLatestValue = (variableId) => {
+      if (!variableData.value[variableId] || variableData.value[variableId].length === 0) {
+        return 'N/A';
+      }
+      
+      const sorted = [...variableData.value[variableId]].sort((a, b) => 
+        new Date(b.fecha) - new Date(a.fecha));
+      
+      return sorted[0].valor.toFixed(2);
+    };
+    
+    // Get min value for a variable
+    const getMinValue = (variableId) => {
+      if (!variableData.value[variableId] || variableData.value[variableId].length === 0) {
+        return 'N/A';
+      }
+      
+      const min = Math.min(...variableData.value[variableId].map(item => item.valor));
+      return min.toFixed(2);
+    };
+    
+    // Get max value for a variable
+    const getMaxValue = (variableId) => {
+      if (!variableData.value[variableId] || variableData.value[variableId].length === 0) {
+        return 'N/A';
+      }
+      
+      const max = Math.max(...variableData.value[variableId].map(item => item.valor));
+      return max.toFixed(2);
+    };
+    
+    // Get average value for a variable
+    const getAvgValue = (variableId) => {
+      if (!variableData.value[variableId] || variableData.value[variableId].length === 0) {
+        return 'N/A';
+      }
+      
+      const sum = variableData.value[variableId].reduce((acc, item) => acc + item.valor, 0);
+      const avg = sum / variableData.value[variableId].length;
+      return avg.toFixed(2);
+    };
+    
+    // Handle date range change
+    const handleDateRangeChange = (range) => {
+      startDate.value = range.start;
+      endDate.value = range.end;
+      
+      // Reload data for all selected variables
+      loadHistoricalData();
+    };
+    
+    // Load data for a specific variable
+    const loadDataForVariable = async (variableId) => {
+      if (!props.selectedFarmId) {
+        showError('No hay ninguna piscifactoría seleccionada');
+        return;
+      }
+      
+      isLoading.value = true;
+      
+      try {
+        const response = await DataService.getDatosHistoricos(
+          variableId, 
+          {
+            piscifactoriaId: props.selectedFarmId,
+            fechaInicio: startDate.value.toISOString(),
+            fechaFin: endDate.value.toISOString()
+          }
+        );
+        
+        if (response.data && response.data.datos && response.data.datos.length > 0) {
+          // Update variable data
+          variableData.value = {
+            ...variableData.value,
+            [variableId]: response.data.datos
+          };
+          
+          noDataAvailable.value = false;
+        } else {
+          console.warn(`No data available for variable ${variableId}`);
+          
+          // Set empty data array for this variable
+          variableData.value = {
+            ...variableData.value,
+            [variableId]: []
+          };
+          
+          // Check if we have any data at all
+          const hasAnyData = Object.values(variableData.value).some(data => data.length > 0);
+          noDataAvailable.value = !hasAnyData;
+        }
+      } catch (error) {
+        console.error(`Error loading data for variable ${variableId}:`, error);
+        showError(`Error al cargar datos para ${getVariableName(variableId)}: ${error.message || 'Error desconocido'}`);
+        
+        // Set empty data array for this variable
+        variableData.value = {
+          ...variableData.value,
+          [variableId]: []
+        };
+        
+        // Check if we have any data at all
+        const hasAnyData = Object.values(variableData.value).some(data => data.length > 0);
+        noDataAvailable.value = !hasAnyData;
+      } finally {
+        isLoading.value = false;
+      }
+    };
+    
+    // Load historical data for all selected variables
     const loadHistoricalData = async () => {
       if (!props.selectedFarmId) {
         showError('No hay ninguna piscifactoría seleccionada');
@@ -576,624 +416,171 @@ export default {
       isLoading.value = true;
       noDataAvailable.value = false;
       clearError();
-
+      
+      // Reset variable data
+      variableData.value = {};
+      
       try {
-        console.log('Cargando datos para:', {
-          variable: selectedVariable.value,
-          farmId: props.selectedFarmId,
-          timeframe: selectedTimeframe.value,
-          startDate: startDate.value.toISOString(),   // Asegurar formato ISO
-          endDate: endDate.value.toISOString()        // Asegurar formato ISO
-        });
-
-        // Llamar a la API para obtener datos históricos
-        const response = await DataService.getDatosHistoricos(
-          selectedVariable.value, 
-          {
-            periodo: selectedTimeframe.value,
-            piscifactoriaId: props.selectedFarmId,
-            fechaInicio: startDate.value.toISOString(),  // Usar fechaInicio en vez de startDate
-            fechaFin: endDate.value.toISOString()        // Usar fechaFin en vez de endDate
-          }
-        );
+        // Load data for each selected variable
+        const promises = selectedVariables.value.map(variable => loadDataForVariable(variable));
+        await Promise.all(promises);
         
-        if (response.data && response.data.datos && response.data.datos.length > 0) {
-          historicalData.value = response.data.datos;
-          
-          console.log('Datos recibidos para gráfica:', historicalData.value);
-
-          // Cargar datos para el heatmap
-          await loadHeatmapData();
-          
-          console.log('Actualizando gráfico con', historicalData.value.length, 'puntos de datos');
-
-          // Cargar datos de predicción si estamos en la pestaña de predicciones
-          if (activeTab.value === 'predictions') {
-            await loadPredictionData();
-          }
-          
-          // Actualizar el gráfico
-          updateChart();
-          
-          // Notificar al componente padre
-          emit('variable-changed', selectedVariable.value);
-        } else {
-          throw new Error('No se encontraron datos históricos para la selección actual');
+        // Check if we have any data at all
+        const hasAnyData = Object.values(variableData.value).some(data => data.length > 0);
+        noDataAvailable.value = !hasAnyData;
+        
+        if (noDataAvailable.value) {
+          throw new Error('No se encontraron datos para la selección actual');
         }
       } catch (error) {
-        console.error('Error al cargar datos históricos:', error);
+        console.error('Error loading historical data:', error);
         showError(`Error al cargar datos: ${error.message || 'Se produjo un error al obtener los datos'}`);
-        historicalData.value = [];
-        dailyHeatmapData.value = [];
-        predictedData.value = [];
-        noDataAvailable.value = true;
-        
-        // Destruir gráficos si no hay datos
-        if (mainChart) {
-          mainChart.destroy();
-          mainChart = null;
-        }
-      } finally {
-        isLoading.value = false;
-      }
-    };
-    
-    // Cargar datos para el heatmap
-    const loadHeatmapData = async () => {
-      try {
-        // Llamar a la API para obtener datos del heatmap
-        const response = await DataService.getHeatmapData(
-          selectedVariable.value, 
-          {
-            piscifactoriaId: props.selectedFarmId,
-            dias: 7 // Una semana
-          }
-        );
-        
-        if (response.data && response.data.length > 0) {
-          dailyHeatmapData.value = response.data;
-        } else {
-          dailyHeatmapData.value = [];
-          console.warn('No se encontraron datos para el heatmap');
-        }
-      } catch (error) {
-        console.error('Error al cargar datos del heatmap:', error);
-        dailyHeatmapData.value = [];
-      }
-    };
-    
-    // Cargar datos de predicción
-    const loadPredictionData = async () => {
-      if (historicalData.value.length === 0) {
-        predictedData.value = [];
-        return;
-      }
-      
-      try {
-        // Llamar a la API para obtener predicciones
-        const response = await DataService.getPredicciones(
-          selectedVariable.value,
-          {
-            piscifactoriaId: props.selectedFarmId,
-            dias: 5 // Predicción para 5 días
-          }
-        );
-        
-        if (response.data && response.data.length > 0) {
-          predictedData.value = response.data;
-        } else {
-          predictedData.value = [];
-          console.warn('No se encontraron datos de predicción');
-        }
-      } catch (error) {
-        console.error('Error al cargar datos de predicción:', error);
-        predictedData.value = [];
-      }
-    };
-    
-    // Cargar datos ambientales
-    const loadEnvironmentalData = async () => {
-      if (!props.selectedFarmId) {
-        showError('No hay ninguna piscifactoría seleccionada');
-        return;
-      }
-      
-      isLoading.value = true;
-      noDataAvailable.value = false;
-      clearError();
-      
-      try {
-        // Llamar a la API para obtener datos ambientales
-        const response = await DataService.getDatosAmbientales({
-          piscifactoriaId: props.selectedFarmId,
-          fecha: new Date().toISOString().split('T')[0]
-        });
-        
-        if (!response.data || Object.keys(response.data).length === 0) {
-          throw new Error('No se encontraron datos ambientales');
-        }
-        
-        // Los datos se actualizarán a través del prop selectedFarm
-        // Emitir evento para actualizar la piscifactoría seleccionada con los nuevos datos
-        emit('refresh-farm-data', props.selectedFarmId);
-      } catch (error) {
-        console.error('Error al cargar datos ambientales:', error);
-        showError(`Error al cargar datos ambientales: ${error.message || 'Se produjo un error inesperado'}`);
         noDataAvailable.value = true;
       } finally {
         isLoading.value = false;
       }
     };
     
-    // Resolver una alerta
-    const resolveAlert = async (alertId) => {
-      if (!alertId) {
-        showError('ID de alerta no válido');
-        return;
-      }
+    // Export data in CSV format
+    const exportData = async () => {
+      if (isExporting.value) return;
+      
+      isExporting.value = true;
       
       try {
-        isLoading.value = true;
-        await DataService.resolverAlerta(alertId);
-        // Recargar datos de la piscifactoría para actualizar las alertas
-        emit('refresh-farm-data', props.selectedFarmId);
-      } catch (error) {
-        console.error('Error al resolver la alerta:', error);
-        showError('No se pudo marcar la alerta como resuelta: ' + (error.message || 'Error desconocido'));
-      } finally {
-        isLoading.value = false;
-      }
-    };
-    
-    // Ver detalles de una alerta
-    const viewAlertDetails = (alertId) => {
-      if (!alertId) {
-        showError('ID de alerta no válido');
-        return;
-      }
-      
-      // Aquí podrías implementar navegación a una vista de detalles
-      // o mostrar un modal con información detallada de la alerta
-      console.log('Ver detalles de alerta:', alertId);
-      
-      // Emitir un evento que podría ser capturado por un componente padre
-      emit('view-alert-details', alertId);
-    };
-    
-    // Actualizar el gráfico principal
-    const updateChart = () => {
-      console.log('Ejecutando updateChart, canvas existe:', !!chartCanvas.value);
-      
-      // Validación temprana para evitar operaciones innecesarias
-      if (!chartCanvas.value) {
-        console.warn('No se puede actualizar el gráfico: el elemento canvas no existe');
-        return;
-      }
-      
-      if (!historicalData.value || historicalData.value.length === 0) {
-        console.warn('No se puede actualizar el gráfico: no hay datos históricos');
-        noDataAvailable.value = true;
-        return;
-      }
-      
-      console.log('Actualizando gráfico con', historicalData.value.length, 'puntos de datos');
-      
-      try {
-        // Obtener el contexto 2D del canvas
-        const ctx = chartCanvas.value.getContext('2d');
-        if (!ctx) {
-          throw new Error('No se pudo obtener el contexto 2D del canvas');
+        // Check if we have any data to export
+        const hasData = Object.values(variableData.value).some(data => data && data.length > 0);
+        
+        if (!hasData) {
+          showError('No hay datos disponibles para exportar');
+          return;
         }
         
-        // Limpiar cualquier gráfico existente
-        if (mainChart) {
-          console.log('Destruyendo gráfico anterior');
-          mainChart.destroy();
-          mainChart = null;
-        }
+        // Create CSV content with headers
+        let csvContent = 'fecha';
+        selectedVariables.value.forEach(variable => {
+          csvContent += `,${getVariableName(variable)} (${getVariableUnit(variable)})`;
+        });
+        csvContent += '\n';
         
-        // Preparar y validar datos para Chart.js
-        const dates = historicalData.value.map(d => new Date(d.fecha));
-        const values = historicalData.value.map(d => {
-          // Convertir NaN a null para evitar errores en la gráfica
-          return isNaN(d.valor) ? null : d.valor;
+        // Get all unique dates across all variables
+        const allDates = new Set();
+        Object.values(variableData.value).forEach(data => {
+          data.forEach(item => allDates.add(item.fecha));
         });
         
-        // Verificar que tenemos datos válidos
-        if (dates.length === 0 || values.every(v => v === null)) {
-          throw new Error('No hay datos válidos para mostrar en el gráfico');
-        }
+        const sortedDates = Array.from(allDates).sort();
         
-        console.log('Datos procesados:', { 
-          fechas: dates.length, 
-          valores: values.length,
-          muestra: values.slice(0, 3)
-        });
-        
-        // Configurar datasets
-        const datasets = [{
-          label: getVariableName(selectedVariable.value),
-          data: values,
-          borderColor: getChartColorByVariable(selectedVariable.value),
-          backgroundColor: getChartBgColorByVariable(selectedVariable.value),
-          tension: 0.4,
-          fill: true,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          borderWidth: 2
-        }];
-        
-        // Configurar opciones del gráfico
-        const options = {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: {
-            duration: 750 // Animación más rápida
-          },
-          scales: {
-            x: {
-              type: 'time',
-              time: {
-                unit: getTimeUnitByPeriod(selectedTimeframe.value),
-                displayFormats: {
-                  hour: 'HH:mm',
-                  day: 'dd MMM',
-                  week: 'dd MMM',
-                  month: 'MMM yyyy'
-                },
-                tooltipFormat: 'dd MMM yyyy HH:mm'
-              },
-              title: {
-                display: true,
-                text: 'Fecha',
-                font: {
-                  weight: 'bold'
-                }
-              },
-              grid: {
-                display: true,
-                color: 'rgba(0, 0, 0, 0.05)'
-              }
-            },
-            y: {
-              title: {
-                display: true,
-                text: getUnitByVariable(selectedVariable.value),
-                font: {
-                  weight: 'bold'
-                }
-              },
-              beginAtZero: getBeginAtZeroByVariable(selectedVariable.value),
-              grid: {
-                display: true,
-                color: 'rgba(0, 0, 0, 0.05)'
-              }
-            }
-          },
-          plugins: {
-            tooltip: {
-              mode: 'index',
-              intersect: false,
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              padding: 10,
-              cornerRadius: 4,
-              titleFont: {
-                size: 14
-              },
-              bodyFont: {
-                size: 13
-              }
-            },
-            legend: {
-              position: 'top',
-              labels: {
-                padding: 15,
-                usePointStyle: true,
-                font: {
-                  size: 12
-                }
-              }
-            }
-          },
-          interaction: {
-            mode: 'nearest',
-            axis: 'x',
-            intersect: false
-          }
-        };
-        
-        // Crear gráfico
-        mainChart = new Chart(ctx, {
-          type: chartType.value || 'line',
-          data: {
-            labels: dates,
-            datasets: datasets
-          },
-          options: options
-        });
-        
-        // Añadir líneas de umbral si showThresholds está activado
-        if (showThresholds.value) {
-          const thresholds = getThresholds(selectedVariable.value);
+        // Create a row for each date
+        sortedDates.forEach(date => {
+          csvContent += date;
           
-          if ((thresholds.min !== null || thresholds.max !== null) && mainChart) {
-            // Configurar anotaciones
-            const annotations = {};
-            
-            if (thresholds.min !== null) {
-              annotations.minLine = {
-                type: 'line',
-                yMin: thresholds.min,
-                yMax: thresholds.min,
-                borderColor: '#e74c3c',
-                borderWidth: 2,
-                borderDash: [5, 5],
-                label: {
-                  content: `Mínimo (${thresholds.min} ${getUnitByVariable(selectedVariable.value)})`,
-                  enabled: true,
-                  position: 'start',
-                  backgroundColor: 'rgba(231, 76, 60, 0.8)',
-                  font: {
-                    size: 11
-                  }
-                }
-              };
-            }
-            
-            if (thresholds.max !== null) {
-              annotations.maxLine = {
-                type: 'line',
-                yMin: thresholds.max,
-                yMax: thresholds.max,
-                borderColor: '#f39c12',
-                borderWidth: 2,
-                borderDash: [5, 5],
-                label: {
-                  content: `Máximo (${thresholds.max} ${getUnitByVariable(selectedVariable.value)})`,
-                  enabled: true,
-                  position: 'start',
-                  backgroundColor: 'rgba(243, 156, 18, 0.8)',
-                  font: {
-                    size: 11
-                  }
-                }
-              };
-            }
-            
-            // Asignar anotaciones y actualizar gráfico
-            mainChart.options.plugins.annotation = { annotations };
-            mainChart.update();
-          }
-        }
+          // Add value for each variable on this date
+          selectedVariables.value.forEach(variable => {
+            const data = variableData.value[variable] || [];
+            const item = data.find(item => item.fecha === date);
+            csvContent += `,${item ? item.valor : ''}`;
+          });
+          
+          csvContent += '\n';
+        });
         
-        // Marcar que hay datos disponibles
-        noDataAvailable.value = false;
-        console.log('Gráfico actualizado correctamente');
+        // Create a download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `datos_${props.selectedFarmId}_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
       } catch (error) {
-        console.error('Error al actualizar el gráfico:', error);
-        noDataAvailable.value = true;
-        showError(`Error al mostrar el gráfico: ${error.message}`);
+        console.error('Error exporting data:', error);
+        showError(`Error al exportar datos: ${error.message || 'Error desconocido'}`);
+      } finally {
+        isExporting.value = false;
       }
     };
     
-    // Calcular la rotación para el medidor
-    const calculateRotation = (value, min, max) => {
-      // Si no hay rango, devolver 0 (neutral)
-      if (min === max) return 0;
+    // Show error message
+    const showError = (message) => {
+      errorMessage.value = message;
+      emit('error', message);
       
-      const range = max - min;
-      const normalized = (value - min) / range;
-      const degrees = -90 + (normalized * 180); // -90 a 90 grados
-      
-      return Math.min(90, Math.max(-90, degrees));
+      // Auto-clear error after 10 seconds
+      setTimeout(() => {
+        if (errorMessage.value === message) {
+          clearError();
+        }
+      }, 10000);
     };
     
-    // Obtener el color basado en el estado
-    const getStatusColor = (status) => {
-      switch (status) {
-        case 'danger': return '#e74c3c';
-        case 'warning': return '#f39c12';
-        default: return '#2ecc71';
-      }
+    // Clear error message
+    const clearError = () => {
+      errorMessage.value = '';
     };
     
-    // Función auxiliar para obtener nombre legible de variables
-    const getVariableName = (variableKey) => {
-      const names = {
-        'o2': 'Oxígeno disuelto',
-        'CHL': 'Clorofila',
-        'TUR': 'Turbidez',
-        'no3': 'Nitrato',
-        'po4': 'Fosfato',
-        'uo': 'Corriente U',
-        'vo': 'Corriente V',
-        'nh4': 'Amonio',
-        'si': 'Silicio',
-        'fgco2': 'Flujo CO2',
-        'spco2': 'pCO2 superficial',
-        'nppv': 'Producción primaria',
-        'temperature': 'Temperatura',
-        'salinity': 'Salinidad',
-        'currents': 'Corrientes'
-      };
-      return names[variableKey] || variableKey;
-    };
-    
-    // Función auxiliar para obtener unidades según la variable
-    const getUnitByVariable = (variable) => {
-      const units = {
-        'o2': 'mg/L',
-        'CHL': 'mg/m³',
-        'TUR': 'NTU',
-        'no3': 'mmol/m³',
-        'po4': 'mmol/m³',
-        'uo': 'm/s',
-        'vo': 'm/s',
-        'nh4': 'mmol/m³',
-        'si': 'mmol/m³',
-        'fgco2': 'mol/m²/s',
-        'spco2': 'µatm',
-        'nppv': 'mg C/m³/día',
-        'temperature': '°C',
-        'salinity': 'ppt',
-        'currents': 'm/s'
-      };
-      return units[variable] || '';
-    };
-    
-    // Función para obtener el color del gráfico según la variable
-    const getChartColorByVariable = (variable) => {
-      const colors = {
-        'o2': '#3498db',        // Azul para oxígeno
-        'CHL': '#2ecc71',       // Verde para clorofila
-        'TUR': '#95a5a6',       // Gris para turbidez
-        'no3': '#e74c3c',       // Rojo para nitrato
-        'po4': '#f39c12',       // Naranja para fosfato
-        'uo': '#9b59b6',        // Púrpura para corriente U
-        'vo': '#1abc9c',        // Turquesa para corriente V
-        'nh4': '#d35400',       // Naranja oscuro para amonio
-        'si': '#34495e',        // Azul oscuro para silicio
-        'fgco2': '#7f8c8d',     // Gris para flujo CO2
-        'spco2': '#2c3e50',     // Azul marino para pCO2
-        'nppv': '#27ae60',      // Verde oscuro para producción primaria
-        'temperature': '#e67e22', // Naranja para temperatura
-        'salinity': '#8e44ad',  // Púrpura para salinidad
-        'currents': '#16a085'   // Verde azulado para corrientes
-      };
-      return colors[variable] || '#3498db';
-    };
-    
-    // Función para obtener el color de fondo del gráfico según la variable
-    const getChartBgColorByVariable = (variable) => {
-      const colors = {
-        'o2': 'rgba(52, 152, 219, 0.1)',
-        'CHL': 'rgba(46, 204, 113, 0.1)',
-        'TUR': 'rgba(149, 165, 166, 0.1)',
-        'no3': 'rgba(231, 76, 60, 0.1)',
-        'po4': 'rgba(243, 156, 18, 0.1)',
-        'uo': 'rgba(155, 89, 182, 0.1)',
-        'vo': 'rgba(26, 188, 156, 0.1)',
-        'nh4': 'rgba(211, 84, 0, 0.1)',
-        'si': 'rgba(52, 73, 94, 0.1)',
-        'fgco2': 'rgba(127, 140, 141, 0.1)',
-        'spco2': 'rgba(44, 62, 80, 0.1)',
-        'nppv': 'rgba(39, 174, 96, 0.1)',
-        'temperature': 'rgba(230, 126, 34, 0.1)',
-        'salinity': 'rgba(142, 68, 173, 0.1)',
-        'currents': 'rgba(22, 160, 133, 0.1)'
-      };
-      return colors[variable] || 'rgba(52, 152, 219, 0.1)';
-    };
-    
-    // Función para obtener la unidad de tiempo para el gráfico según el período
-    const getTimeUnitByPeriod = (period) => {
-      switch (period) {
-        case 'day': return 'hour';
-        case 'week': return 'day';
-        case 'month': return 'day';
-        case 'year': return 'month';
-        default: return 'day';
-      }
-    };
-    
-    // Función para determinar si el eje Y comienza en cero
-    const getBeginAtZeroByVariable = (variable) => {
-      // Para temperatura y salinidad no comenzamos en cero
-      return !['temperature', 'salinity'].includes(variable);
-    };
-    
-    // Observar cambios en props
+    // Watch for changes in selected farm
     watch(() => props.selectedFarmId, (newVal, oldVal) => {
       if (newVal && newVal !== oldVal) {
         clearError();
-        // Cargar datos al seleccionar una piscifactoría
         loadHistoricalData();
-        if (activeTab.value === 'environment') {
-          loadEnvironmentalData();
-        }
       }
     });
     
-    watch(() => activeTab.value, (newTab, oldTab) => {
-      if (newTab !== oldTab) {
-        clearError();
-        
-        // Cargar datos específicos para cada pestaña
-        if (newTab === 'environment') {
-          loadEnvironmentalData();
-        } else if (newTab === 'predictions' && historicalData.value.length === 0) {
-          loadHistoricalData();
-        }
-      }
-    });
-    
-    // Ciclo de vida
+    // Load data when component is mounted
     onMounted(() => {
       if (props.selectedFarmId) {
         loadHistoricalData();
-        if (activeTab.value === 'environment') {
-          loadEnvironmentalData();
-        }
       }
     });
     
+    // Cleanup when component is unmounted
     onUnmounted(() => {
-      // Limpiar gráficos para evitar fugas de memoria
-      if (mainChart) {
-        mainChart.destroy();
-      }
-      
-      // Limpiar intervalo de actualización automática
       if (autoRefreshInterval.value) {
         clearInterval(autoRefreshInterval.value);
       }
     });
     
     return {
-      // Estado
-      chartCanvas,
-      selectedVariable,
-      selectedTimeframe,
-      activeTab,
-      tabs,
-      indicators,
-      alerts,
-      environmentalData,
-      dailyHeatmapData,
+      // State
+      isLoading,
+      isExporting,
+      errorMessage,
+      noDataAvailable,
       startDate,
       endDate,
       chartType,
-      showThresholds,
-      predictedData,
-      isLoading,
-      errorMessage,
-      noDataAvailable,
-      historicalData,
+      selectedVariables,
+      availableVariables,
+      variableData,
+      chartOptions,
+      chartDataSeries,
       
-      // Métodos
-      loadHistoricalData,
-      loadEnvironmentalData,
-      calculateRotation,
-      getStatusColor,
-      getVariableName,
-      getUnitByVariable,
-      handleDateRangeChange,
-      handleHeatmapCellClick,
-      handleConfigChange,
-      exportData,
-      handleAutoRefreshChange,
-      handleRefreshIntervalChange,
-      getThresholds,
+      // Methods
       clearError,
-      resolveAlert,
-      viewAlertDetails
+      handleDateRangeChange,
+      toggleVariable,
+      getVariableName,
+      getVariableUnit,
+      getVariableColor,
+      getLatestValue,
+      getMinValue,
+      getMaxValue,
+      getAvgValue,
+      loadHistoricalData,
+      exportData,
+      resetZoom,
+      updateChartType
     };
   }
 };
 </script>
 
 <style scoped>
+
 .stats-dashboard {
   padding: 15px;
   height: 100%;
@@ -1203,6 +590,30 @@ export default {
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+/* Header styling */
+.stats-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 10px;
+}
+
+.stats-header h2 {
+  margin: 0 0 10px 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+.farm-info {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.farm-info span {
+  margin-bottom: 5px;
 }
 
 /* Error message styling */
@@ -1326,470 +737,246 @@ export default {
   margin-right: 8px;
 }
 
-.stats-header {
+/* Variable selector */
+.variable-selector {
+  background-color: white;
+  border-radius: 8px;
+  padding: 15px;
   margin-bottom: 20px;
-  border-bottom: 1px solid #e1e4e8;
-  padding-bottom: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.stats-header h2 {
-  margin: 0 0 10px 0;
-  font-size: 1.5rem;
+.variable-selector h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1rem;
   color: #2c3e50;
 }
 
-.farm-info {
+.variable-options {
   display: flex;
-  flex-direction: column;
-  font-size: 0.9rem;
-  color: #6c757d;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.farm-info span {
-  margin-bottom: 5px;
-}
-
-.stats-tabs {
+.variable-option {
   display: flex;
-  border-bottom: 1px solid #e1e4e8;
-  margin-bottom: 20px;
-  background-color: white;
-  border-radius: 8px 8px 0 0;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.tab {
-  padding: 12px 18px;
-  cursor: pointer;
-  border-bottom: 3px solid transparent;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-  color: #6c757d;
-  text-align: center;
-  flex: 1;
-}
-
-.tab:hover {
-  background-color: #f1f1f1;
-  color: #2980b9;
-}
-
-.tab.active {
-  border-bottom-color: #3498db;
-  color: #3498db;
+  align-items: center;
+  padding: 8px 12px;
   background-color: #f8f9fa;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid #e1e4e8;
 }
 
-.tab-content {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.tab-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-/* Indicadores */
-.indicators-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 15px;
-}
-
-.indicator {
-  background-color: white;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.indicator:hover {
+.variable-option:hover {
+  background-color: #e9ecef;
   transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.indicator-title {
-  font-size: 0.85rem;
-  color: #6c757d;
-  margin-bottom: 5px;
+.variable-option.selected {
+  background-color: #e3f2fd;
+  border-color: #90caf9;
+  box-shadow: 0 2px 4px rgba(144, 202, 249, 0.2);
 }
 
-.indicator-value {
-  font-size: 1.5rem;
-  font-weight: bold;
-  margin-bottom: 5px;
+.color-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
 }
 
-.normal-value {
-  color: #2ecc71;
+.variable-name {
+  font-size: 0.9rem;
+  color: #495057;
 }
 
-.warning-value {
-  color: #f39c12;
-}
-
-.danger-value {
-  color: #e74c3c;
-}
-
-.indicator-trend {
-  font-size: 0.8rem;
-  color: #6c757d;
-}
-
-.trend-up {
-  color: #2ecc71;
-}
-
-.trend-down {
-  color: #e74c3c;
-}
-
-/* Gráfico principal */
+/* Main chart section */
 .main-chart-section {
   background-color: white;
-  padding: 18px;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .main-chart-section h3 {
   margin-top: 0;
-  font-size: 1rem;
+  margin-bottom: 20px;
+  font-size: 1.1rem;
   color: #2c3e50;
-  margin-bottom: 15px;
   border-bottom: 1px solid #f1f1f1;
   padding-bottom: 10px;
 }
 
 .chart-container {
-  height: 300px;
   margin-bottom: 20px;
-  position: relative;
 }
 
 .chart-controls {
   display: flex;
-  gap: 15px;
-  border-top: 1px solid #f1f1f1;
+  justify-content: space-between;
+  align-items: center;
   padding-top: 15px;
+  border-top: 1px solid #f1f1f1;
 }
 
-.chart-control-item {
-  flex: 1;
+.chart-type-selector {
+  display: flex;
+  align-items: center;
 }
 
-.chart-control-item label {
-  display: block;
-  font-size: 0.85rem;
-  margin-bottom: 5px;
+.chart-type-selector label {
+  margin-right: 10px;
+  font-size: 0.9rem;
   color: #6c757d;
-  font-weight: 500;
 }
 
-.chart-control-item select {
-  width: 100%;
-  padding: 8px 10px;
+.chart-type-selector select {
+  padding: 8px 12px;
   border-radius: 4px;
   border: 1px solid #ced4da;
-  background-color: white;
-  font-size: 0.9rem;
-  transition: border-color 0.2s;
+  background-color: #f8f9fa;
+  color: #495057;
   cursor: pointer;
+  transition: border-color 0.2s;
 }
 
-.chart-control-item select:hover {
-  border-color: #adb5bd;
-}
-
-.chart-control-item select:focus {
-  border-color: #3498db;
+.chart-type-selector select:focus {
   outline: none;
+  border-color: #3498db;
   box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
 }
 
-/* Alertas */
-.alerts-summary-section {
-  background-color: white;
-  padding: 18px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+.chart-actions {
+  display: flex;
+  gap: 10px;
 }
 
-.alerts-summary-section h3 {
+.btn-action {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: none;
+  background-color: #f8f9fa;
+  color: #495057;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-action:hover {
+  background-color: #e9ecef;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-action:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-action .icon {
+  margin-right: 6px;
+}
+
+/* Indicators section */
+.indicators-section {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.indicators-section h3 {
   margin-top: 0;
-  font-size: 1rem;
+  margin-bottom: 20px;
+  font-size: 1.1rem;
   color: #2c3e50;
-  margin-bottom: 15px;
   border-bottom: 1px solid #f1f1f1;
   padding-bottom: 10px;
 }
 
-.no-alerts {
-  text-align: center;
-  padding: 30px 20px;
-  color: #6c757d;
-  font-style: italic;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-  border: 1px dashed #e1e4e8;
-}
-
-.alerts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.alert-item {
-  padding: 12px 15px;
-  border-radius: 6px;
-  border-left: 4px solid;
-  background-color: #f8f9fa;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.alert-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.alert-item.alta {
-  border-left-color: #e74c3c;
-  background-color: rgba(231, 76, 60, 0.1);
-}
-
-.alert-item.media {
-  border-left-color: #f39c12;
-  background-color: rgba(243, 156, 18, 0.1);
-}
-
-.alert-item.baja {
-  border-left-color: #3498db;
-  background-color: rgba(52, 152, 219, 0.1);
-}
-
-.alert-title {
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  margin-bottom: 5px;
-}
-
-.alert-icon {
-  margin-right: 8px;
-}
-
-.alert-message {
-  font-size: 0.9rem;
-  margin-bottom: 5px;
-  line-height: 1.4;
-}
-
-.alert-time {
-  font-size: 0.8rem;
-  color: #6c757d;
-  text-align: right;
-}
-
-/* Alertas detalladas */
-.alerts-list-detailed {
-  display: flex;
-  flex-direction: column;
+.indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 15px;
 }
 
-.alert-item-detailed {
-  padding: 18px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  background-color: white;
-  border-left: 4px solid;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.alert-item-detailed:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.alert-item-detailed.alta {
-  border-left-color: #e74c3c;
-}
-
-.alert-item-detailed.media {
-  border-left-color: #f39c12;
-}
-
-.alert-item-detailed.baja {
-  border-left-color: #3498db;
-}
-
-.alert-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #f1f1f1;
-}
-
-.alert-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 15px;
-}
-
-.action-btn {
-  padding: 8px 15px;
-  border-radius: 4px;
-  border: none;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-  font-weight: 500;
-}
-
-.action-btn.resolve {
-  background-color: #2ecc71;
-  color: white;
-  box-shadow: 0 2px 4px rgba(46, 204, 113, 0.3);
-}
-
-.action-btn.details {
-  background-color: #f1f1f1;
-  color: #333;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.action-btn.resolve:hover {
-  background-color: #27ae60;
-  transform: translateY(-1px);
-  box-shadow: 0 3px 6px rgba(46, 204, 113, 0.4);
-}
-
-.action-btn.details:hover {
-  background-color: #e5e5e5;
-  transform: translateY(-1px);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
-}
-
-/* Datos ambientales */
-.environment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 20px;
-}
-
-.env-panel {
-  background-color: white;
-  padding: 18px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.env-panel:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.env-panel h4 {
-  margin-top: 0;
-  margin-bottom: 15px;
-  font-size: 1rem;
-  color: #2c3e50;
-  text-align: center;
-  width: 100%;
-  border-bottom: 1px solid #f1f1f1;
-  padding-bottom: 10px;
-}
-
-.gauge-container {
-  width: 100%;
-  height: 120px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.gauge {
-  width: 150px;
-  height: 75px;
-  position: relative;
+.indicator-card {
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
   overflow: hidden;
-  border-bottom: 6px solid #f1f1f1;
-  border-radius: 80px 80px 0 0;
+  transition: all 0.2s;
 }
 
-.gauge-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 150px;
-  height: 75px;
-  background-color: #3498db;
-  transform-origin: bottom center;
-  transform: rotate(-90deg);
-  transition: transform 0.5s, background-color 0.5s;
-}
-
-.gauge-center {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-}
-
-.gauge-value {
-  font-size: 1.2rem;
-  font-weight: bold;
-  background-color: white;
-  padding: 5px 10px;
-  border-radius: 15px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s;
-}
-
-.gauge:hover .gauge-value {
+.indicator-card:hover {
   transform: translateY(-3px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-.env-stats {
-  width: 100%;
+.indicator-header {
+  padding: 10px 15px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.indicator-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #2c3e50;
+}
+
+.indicator-content {
+  padding: 15px;
+}
+
+.indicator-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #2c3e50;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.indicator-value .unit {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: normal;
+  margin-left: 4px;
+}
+
+.indicator-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
-  text-align: center;
-  border-top: 1px solid #f1f1f1;
-  padding-top: 15px;
+  background-color: #f8f9fa;
+  padding: 10px;
+  border-radius: 4px;
 }
 
-.env-stat {
+.stat {
   display: flex;
   flex-direction: column;
-  font-size: 0.85rem;
+  align-items: center;
 }
 
-.env-stat .label {
+.stat-label {
+  font-size: 0.8rem;
   color: #6c757d;
-  margin-bottom: 3px;
-  font-weight: 500;
+  margin-bottom: 5px;
 }
 
-.env-stat .value {
-  font-weight: 600;
+.stat-value {
+  font-size: 0.9rem;
+  font-weight: 500;
   color: #2c3e50;
 }
 
@@ -1804,68 +991,36 @@ export default {
   100% { transform: rotate(360deg); }
 }
 
-/* Media Queries para responsividad */
+/* Media Queries for responsiveness */
 @media (max-width: 992px) {
-  .environment-grid,
   .indicators-grid {
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   }
 }
 
 @media (max-width: 768px) {
-  .stats-tabs {
-    overflow-x: auto;
-    padding-bottom: 5px;
-    flex-wrap: nowrap;
-  }
-  
-  .tab {
-    white-space: nowrap;
-    padding: 10px 12px;
-    font-size: 0.8rem;
-    flex: none;
-    min-width: 100px;
-  }
-  
-  .indicators-grid,
-  .environment-grid {
-    grid-template-columns: 1fr;
-  }
-  
   .chart-controls {
     flex-direction: column;
+    gap: 15px;
+    align-items: flex-start;
   }
   
-  .gauge {
-    width: 120px;
-    height: 60px;
+  .chart-actions {
+    width: 100%;
   }
   
-  .gauge-fill {
-    width: 120px;
-    height: 60px;
+  .btn-action {
+    flex: 1;
+    justify-content: center;
   }
   
-  .gauge-value {
-    font-size: 1rem;
-    padding: 4px 8px;
+  .variable-options {
+    flex-direction: column;
+    gap: 8px;
   }
   
-  .env-stats {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-  
-  .env-stat {
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid #f1f1f1;
-  }
-  
-  .env-stat:last-child {
-    border-bottom: none;
+  .variable-option {
+    width: 100%;
   }
 }
 
@@ -1874,38 +1029,14 @@ export default {
     padding: 10px;
   }
   
-  .stats-header h2 {
-    font-size: 1.2rem;
+  .indicators-grid {
+    grid-template-columns: 1fr;
   }
   
-  .error-notification {
-    padding: 10px;
-    font-size: 0.9rem;
-  }
-  
-  .error-icon {
-    font-size: 16px;
-  }
-  
-  .no-data-message {
-    padding: 20px;
-  }
-  
-  .no-data-icon {
-    font-size: 36px;
-  }
-  
-  .no-data-message h3 {
-    font-size: 16px;
-  }
-  
-  .no-data-message p {
-    font-size: 0.9rem;
-  }
-  
-  .action-btn {
-    padding: 6px 10px;
-    font-size: 0.8rem;
+  .main-chart-section,
+  .indicators-section,
+  .variable-selector {
+    padding: 15px;
   }
 }
 </style>

@@ -35,9 +35,228 @@ router.get('/', (req, res) => {
       '/historico/:variable',
       '/exportar',
       '/datasets',
-      '/copernicus/ejecutar'
+      '/copernicus/ejecutar',
+      '/corrientes',
+      '/corrientes/riesgo/:id',
+      '/corrientes/prediccion/:id'
     ]
   });
+});
+
+// Obtener datos de corrientes (vo) para visualización vectorial
+router.get('/corrientes', async (req, res) => {
+  const { fecha } = req.query;
+  
+  // Usar la fecha proporcionada o la fecha actual
+  const fechaConsulta = fecha || new Date().toISOString().split('T')[0];
+  
+  try {
+    const result = await queryDB(`
+      SELECT 
+        va.id,
+        va.variable_nombre,
+        va.fecha_tiempo,
+        va.valor,
+        ST_X(va.geometria) as lng,
+        ST_Y(va.geometria) as lat,
+        va.profundidad
+      FROM gloria.variables_ambientales va
+      WHERE va.variable_nombre = 'vo'
+      AND DATE(va.fecha_tiempo) = DATE($1)
+      ORDER BY va.fecha_tiempo DESC
+    `, [fechaConsulta]);
+    
+    if (result.success && result.data.length > 0) {
+      // Transformar a formato más adecuado para visualización vectorial
+      const datos = result.data.map(row => ({
+        lat: row.lat || 0,
+        lng: row.lng || 0,
+        valor: parseFloat((row.valor || 0).toFixed(2)),
+        direccion: Math.random() * 360, // Esto debería venir de tus datos reales
+        profundidad: row.profundidad || 0,
+        fecha: row.fecha_tiempo
+      }));
+      
+      res.json({
+        fecha: fechaConsulta,
+        variable: 'vo',
+        datos
+      });
+    } else {
+      res.json({
+        fecha: fechaConsulta,
+        variable: 'vo',
+        datos: []
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener datos de corrientes:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener datos de corrientes',
+      details: error.message
+    });
+  }
+});
+
+// Obtener análisis de riesgo de corrientes para una piscifactoría específica
+router.get('/corrientes/riesgo/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  
+  try {
+    // Obtener los datos de corrientes más recientes para esta piscifactoría
+    const result = await queryDB(`
+      SELECT 
+        va.valor,
+        va.fecha_tiempo,
+        p.nombre,
+        p.tipo
+      FROM gloria.variables_ambientales va
+      JOIN gloria.piscifactorias p ON va.piscifactoria_id = p.id
+      WHERE va.variable_nombre = 'vo'
+      AND va.piscifactoria_id = $1
+      ORDER BY va.fecha_tiempo DESC
+      LIMIT 1
+    `, [piscifactoriaId]);
+    
+    if (result.success && result.data.length > 0) {
+      const dato = result.data[0];
+      
+      // Calcular índice de riesgo basado en velocidad de corriente
+      // Esto es una simplificación - en un sistema real sería más complejo
+      const velocidad = dato.valor || 0;
+      let indiceRiesgo = 0;
+      let nivelRiesgo = 'bajo';
+      
+      // Umbrales de velocidad para riesgo
+      const umbralAdvertencia = 0.5; // m/s
+      const umbralPeligro = 0.8;     // m/s
+      
+      if (velocidad < umbralAdvertencia) {
+        // Riesgo bajo (0-3)
+        indiceRiesgo = (velocidad / umbralAdvertencia) * 3;
+      } else if (velocidad < umbralPeligro) {
+        // Riesgo medio (3-7)
+        const rango = umbralPeligro - umbralAdvertencia;
+        const posicion = velocidad - umbralAdvertencia;
+        indiceRiesgo = 3 + (posicion / rango) * 4;
+      } else {
+        // Riesgo alto (7-10)
+        const excesoFactor = Math.min((velocidad - umbralPeligro) / 0.5, 1);
+        indiceRiesgo = 7 + excesoFactor * 3;
+      }
+      
+      if (indiceRiesgo < 3.5) {
+        nivelRiesgo = 'bajo';
+      } else if (indiceRiesgo < 7) {
+        nivelRiesgo = 'medio';
+      } else {
+        nivelRiesgo = 'alto';
+      }
+      
+      // Crear respuesta
+      res.json({
+        piscifactoria: {
+          id: piscifactoriaId,
+          nombre: dato.nombre,
+          tipo: dato.tipo
+        },
+        analisisRiesgo: {
+          indice: parseFloat(indiceRiesgo.toFixed(1)),
+          nivel: nivelRiesgo,
+          velocidadActual: parseFloat(velocidad.toFixed(2)),
+          umbralAdvertencia,
+          umbralPeligro,
+          fechaAnalisis: dato.fecha_tiempo,
+          factores: [
+            {
+              nombre: 'Velocidad de corriente',
+              valor: parseFloat(velocidad.toFixed(2)),
+              unidad: 'm/s',
+              contribucion: parseFloat((velocidad / umbralPeligro * 5).toFixed(1))
+            }
+            // Aquí podrías añadir más factores
+          ]
+        }
+      });
+    } else {
+      res.status(404).json({ 
+        error: 'No se encontraron datos de corrientes para esta piscifactoría',
+        piscifactoriaId
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener análisis de riesgo:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener análisis de riesgo',
+      details: error.message
+    });
+  }
+});
+
+// Obtener predicción de corrientes para una piscifactoría específica
+router.get('/corrientes/prediccion/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  const { dias = 1 } = req.query; // Por defecto, predicción para 1 día
+  
+  try {
+    // Obtener datos históricos recientes para usar en la predicción
+    const result = await queryDB(`
+      SELECT 
+        va.valor,
+        va.fecha_tiempo
+      FROM gloria.variables_ambientales va
+      WHERE va.variable_nombre = 'vo'
+      AND va.piscifactoria_id = $1
+      AND va.fecha_tiempo > NOW() - INTERVAL '7 days'
+      ORDER BY va.fecha_tiempo DESC
+      LIMIT 48
+    `, [piscifactoriaId]);
+    
+    if (result.success && result.data.length > 0) {
+      // En un sistema real, aquí usarías los datos históricos para generar
+      // una predicción más precisa. Como simplificación, generaremos datos
+      // basados en los últimos valores disponibles.
+      
+      const datosHistoricos = result.data;
+      const ultimoValor = datosHistoricos[0].valor || 0;
+      const prediccion = [];
+      
+      // Generar predicción para los próximos días
+      const ahora = new Date();
+      const numPredicciones = parseInt(dias) * 8; // 8 predicciones por día
+      
+      for (let i = 0; i < numPredicciones; i++) {
+        const horaPrediccion = new Date(ahora.getTime() + i * 3 * 60 * 60 * 1000); // cada 3 horas
+        
+        // Generar valor con variación aleatoria basada en el último valor
+        const variacion = (Math.random() - 0.5) * 0.2; // +/- 10% de variación
+        const valorPrediccion = Math.max(0, ultimoValor + variacion);
+        
+        prediccion.push({
+          fecha: horaPrediccion.toISOString(),
+          valor: parseFloat(valorPrediccion.toFixed(2))
+        });
+      }
+      
+      res.json({
+        piscifactoriaId,
+        variable: 'vo',
+        diasPrediccion: parseInt(dias),
+        prediccion
+      });
+    } else {
+      res.status(404).json({ 
+        error: 'No hay suficientes datos históricos para generar una predicción',
+        piscifactoriaId
+      });
+    }
+  } catch (error) {
+    console.error('Error al generar predicción de corrientes:', error);
+    res.status(500).json({ 
+      error: 'Error al generar predicción de corrientes',
+      details: error.message
+    });
+  }
 });
 
 // Ruta para obtener listado de piscifactorías
