@@ -122,7 +122,7 @@ def get_download_period(dataset_id, metadata, days_back=1):
     Por defecto, descarga desde hace 1 días hasta hoy.
     """
     # Obtener la fecha actual
-    hoy = datetime.today() - timedelta(days=5)
+    hoy = datetime.today() - timedelta(days=365)
     
     # Fecha de inicio: hace N días
     fecha_inicio = hoy - timedelta(days=days_back)
@@ -304,7 +304,10 @@ def download_and_save(dataset_id, variables, min_lon, max_lon, min_lat, max_lat,
         if checksum:
             metadata[dataset_id]['checksums'].append(checksum)
         metadata[dataset_id]['files'].append(str(downloaded_file))
-        metadata[dataset_id]['last_download_date'] = end_date
+        
+        # Usar la fecha actual como fecha de descarga
+        current_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        metadata[dataset_id]['last_download_date'] = current_date
         
         logger.info(f"Datos guardados en: {downloaded_file}")
         return downloaded_file
@@ -358,81 +361,7 @@ def main():
                 "max_lat": 40.5,  # Hasta norte de Valencia
                 "min_depth": 1.0182366371154785,
                 "max_depth": 1.0182366371154785,
-                "days_back": 1,  # Datos de 1 días atrás
-            },
-            
-            # CO2 (Biogeochemical - Carbon Dioxide)
-            {
-                "id": "cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m",
-                "variables": ["fgco2", "spco2"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "days_back": 1,
-            },
-            
-            # Nutrientes (Biogeochemical - Nutrients)
-            {
-                "id": "cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m",
-                "variables": ["nh4", "no3", "po4", "si"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "min_depth": 1.0182366371154785,
-                "max_depth": 1.0182366371154785,
-                "days_back": 1,
-            },
-            
-            # Biología (Biogeochemical - Biology)
-            {
-                "id": "cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m",
-                "variables": ["nppv", "o2"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "min_depth": 1.0182366371154785,
-                "max_depth": 1.0182366371154785,
-                "days_back": 1,
-            },
-            
-            # Turbidez y Clorofila (Observation - Ocean Color)
-            {
-                "id": "cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m",
-                "variables": ["CHL", "SPM", "TUR"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "days_back": 1,
-            },
-            
-            # Carbonates (Biogeochemical - Carbonates)
-            {
-                "id": "cmems_mod_med_bgc-car_anfc_4.2km_P1D-m",
-                "variables": ["dissic", "ph", "talk"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "min_depth": 1.0182366371154785,
-                "max_depth": 1.0182366371154785,
-                "days_back": 1,
-            },
-            
-            # Plankton Functional Types (Biogeochemical - PFT)
-            {
-                "id": "cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m",
-                "variables": ["chl", "diatoChla", "nanoChla", "picoChla"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "min_depth": 1.0182366371154785,
-                "max_depth": 1.0182366371154785,
-                "days_back": 1,
+                "days_back": 15,  # Datos de 1 días atrás
             },
             
             # Heat Flux (Physical - Heat Flux)
@@ -443,7 +372,7 @@ def main():
                 "max_lon": 1.0,
                 "min_lat": 37.0,
                 "max_lat": 40.5,
-                "days_back": 1,
+                "days_back": 15,
             },
             
             # Salinity (Physical - Salinity)
@@ -456,7 +385,7 @@ def main():
                 "max_lat": 40.5,
                 "min_depth": 1.0182366371154785,
                 "max_depth": 1.0182366371154785,
-                "days_back": 1,
+                "days_back": 15,
             },
             
             # Sea Surface Height (Physical - SSH)
@@ -467,19 +396,9 @@ def main():
                 "max_lon": 1.0,
                 "min_lat": 37.0,
                 "max_lat": 40.5,
-                "days_back": 1,
+                "days_back": 15,
             },
-            
-            # Water Flux (Physical - Water Flux)
-            {
-                "id": "cmems_mod_med_phy-wflux_my_4.2km_P1D-m",
-                "variables": ["evs", "pr"],
-                "min_lon": -1.5,
-                "max_lon": 1.0,
-                "min_lat": 37.0,
-                "max_lat": 40.5,
-                "days_back": 1,
-            },
+    
         ]
         
         # Lista para guardar los archivos descargados correctamente

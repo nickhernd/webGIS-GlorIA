@@ -38,7 +38,10 @@ router.get('/', (req, res) => {
       '/copernicus/ejecutar',
       '/corrientes',
       '/corrientes/riesgo/:id',
-      '/corrientes/prediccion/:id'
+      '/corrientes/prediccion/:id',
+      '/predicciones/escapes/:id',
+      '/predicciones/escapes/:id/historial',
+      '/riesgo/resumen'
     ]
   });
 });
@@ -259,6 +262,578 @@ router.get('/corrientes/prediccion/:id', async (req, res) => {
   }
 });
 
+// Obtener analisis de riesgo de una piscifactoría específica
+router.get('/riesgo/escapes/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  
+  try {
+    // Obtener los datos de olas más recientes para esta piscifactoría
+    const result = await queryDB(`
+      SELECT 
+        va.valor as altura_olas,
+        va.fecha_tiempo,
+        p.nombre,
+        p.tipo
+      FROM gloria.variables_ambientales va
+      JOIN gloria.piscifactorias p ON va.piscifactoria_id = p.id
+      WHERE va.variable_nombre = 'wave_height'
+      AND va.piscifactoria_id = $1
+      ORDER BY va.fecha_tiempo DESC
+      LIMIT 2
+    `, [piscifactoriaId]);
+    
+    if (result.success && result.data.length > 0) {
+      const dato = result.data[0];
+      const datoPrevio = result.data.length > 1 ? result.data[1] : null;
+      
+      // Obtener datos de corrientes
+      const corrientesResult = await queryDB(`
+        SELECT 
+          va.valor
+        FROM gloria.variables_ambientales va
+        WHERE va.variable_nombre IN ('uo', 'vo')
+        AND va.piscifactoria_id = $1
+        ORDER BY va.fecha_tiempo DESC
+        LIMIT 2
+      `, [piscifactoriaId]);
+      
+      // Calcular velocidad de corriente
+      let velocidadCorriente = 0;
+      if (corrientesResult.success && corrientesResult.data.length > 0) {
+        // Si hay datos de ambas componentes, calcular magnitud
+        if (corrientesResult.data.length >= 2) {
+          const uo = corrientesResult.data[0].valor || 0;
+          const vo = corrientesResult.data[1].valor || 0;
+          velocidadCorriente = Math.sqrt(uo*uo + vo*vo);
+        } else {
+          velocidadCorriente = corrientesResult.data[0].valor || 0;
+        }
+      }
+      
+      // Calcular índice de riesgo basado en altura de olas actual y del día anterior
+      // Según el paper, el día anterior tiene mayor impacto
+      const alturaActual = dato.altura_olas || 0;
+      const alturaPrevia = datoPrevio ? datoPrevio.altura_olas || 0 : 0;
+      
+      // Pesos basados en el paper: mayor peso al día anterior
+      const pesoActual = 0.3;
+      const pesoPrevio = 0.7;
+      const pesoCorriente = 0.2;
+      
+      // Cálculo básico del índice (0-10)
+      let indiceRiesgo = 0;
+      
+      // Contribución de altura actual
+      let contribucionActual = 0;
+      if (alturaActual < 1.5) {
+        contribucionActual = alturaActual / 1.5 * 3; // 0-3 para olas pequeñas
+      } else if (alturaActual < 3) {
+        contribucionActual = 3 + (alturaActual - 1.5) / 1.5 * 3; // 3-6 para olas medianas
+      } else {
+        contribucionActual = 6 + Math.min(4, (alturaActual - 3) * 2); // 6-10 para olas grandes
+      }
+      
+      // Contribución de altura previa (mayor peso según el paper)
+      let contribucionPrevia = 0;
+      if (alturaPrevia < 1.5) {
+        contribucionPrevia = alturaPrevia / 1.5 * 3;
+      } else if (alturaPrevia < 3) {
+        contribucionPrevia = 3 + (alturaPrevia - 1.5) / 1.5 * 3;
+      } else {
+        contribucionPrevia = 6 + Math.min(4, (alturaPrevia - 3) * 2);
+      }
+      
+      // Contribución de corrientes
+      let contribucionCorriente = 0;
+      if (velocidadCorriente < 0.3) {
+        contribucionCorriente = velocidadCorriente / 0.3 * 3;
+      } else if (velocidadCorriente < 0.8) {
+        contribucionCorriente = 3 + (velocidadCorriente - 0.3) / 0.5 * 4;
+      } else {
+        contribucionCorriente = 7 + Math.min(3, (velocidadCorriente - 0.8) * 5);
+      }
+      
+      // Índice combinado
+      indiceRiesgo = (
+        pesoActual * contribucionActual + 
+        pesoPrevio * contribucionPrevia + 
+        pesoCorriente * contribucionCorriente
+      ) / (pesoActual + pesoPrevio + pesoCorriente);
+      
+      // Limitar a 10
+      indiceRiesgo = Math.min(10, indiceRiesgo);
+      
+      // Determinar nivel de riesgo
+      let nivelRiesgo = 'bajo';
+      if (indiceRiesgo >= 7) {
+        nivelRiesgo = 'alto';
+      } else if (indiceRiesgo >= 3.5) {
+        nivelRiesgo = 'medio';
+      }
+      
+      // Calcular probabilidad de escape
+      const probabilidadEscape = indiceRiesgo / 10;
+      
+      // Crear respuesta
+      res.json({
+        piscifactoria: {
+          id: piscifactoriaId,
+          nombre: dato.nombre,
+          tipo: dato.tipo
+        },
+        analisisRiesgo: {
+          indice: parseFloat(indiceRiesgo.toFixed(1)),
+          nivel: nivelRiesgo,
+          probabilidad: parseFloat(probabilidadEscape.toFixed(2)),
+          factores: [
+            {
+              nombre: "Altura de olas (día anterior)",
+              valor: parseFloat(alturaPrevia.toFixed(2)),
+              unidad: "m",
+              contribucion: parseFloat(contribucionPrevia.toFixed(1)),
+              umbral: 3.0
+            },
+            {
+              nombre: "Altura de olas actual",
+              valor: parseFloat(alturaActual.toFixed(2)),
+              unidad: "m",
+              contribucion: parseFloat(contribucionActual.toFixed(1)),
+              umbral: 3.0
+            },
+            {
+              nombre: "Velocidad de corriente",
+              valor: parseFloat(velocidadCorriente.toFixed(2)),
+              unidad: "m/s",
+              contribucion: parseFloat(contribucionCorriente.toFixed(1)),
+              umbral: 0.8
+            }
+          ],
+          fechaAnalisis: dato.fecha_tiempo
+        }
+      });
+    } else {
+      res.status(404).json({ 
+        error: 'No se encontraron datos suficientes para esta piscifactoría',
+        piscifactoriaId
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener análisis de riesgo:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener análisis de riesgo',
+      details: error.message
+    });
+  }
+});
+
+// Obtener predicción de riesgo de escapes para una piscifactoría
+router.get('/riesgo/prediccion/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  const { dias = 7 } = req.query; // Por defecto, predicción para 7 días
+  
+  try {
+    // Obtener datos históricos recientes para usar en la predicción
+    const result = await queryDB(`
+      SELECT 
+        va.variable_nombre,
+        va.valor,
+        va.fecha_tiempo
+      FROM gloria.variables_ambientales va
+      WHERE va.variable_nombre IN ('wave_height', 'uo', 'vo')
+      AND va.piscifactoria_id = $1
+      AND va.fecha_tiempo > NOW() - INTERVAL '7 days'
+      ORDER BY va.fecha_tiempo DESC
+      LIMIT 50
+    `, [piscifactoriaId]);
+    
+    if (result.success && result.data.length > 0) {
+      // Agrupar datos por variable
+      const groupedData = result.data.reduce((acc, item) => {
+        if (!acc[item.variable_nombre]) {
+          acc[item.variable_nombre] = [];
+        }
+        acc[item.variable_nombre].push(item);
+        return acc;
+      }, {});
+      
+      // Obtener últimos valores conocidos
+      const lastWaveHeight = groupedData.wave_height && groupedData.wave_height.length > 0 
+        ? groupedData.wave_height[0].valor : 1.5;
+      
+      // Calcular últimas corrientes
+      let lastCurrents = 0.3;
+      if (groupedData.uo && groupedData.uo.length > 0 && groupedData.vo && groupedData.vo.length > 0) {
+        const uo = groupedData.uo[0].valor || 0;
+        const vo = groupedData.vo[0].valor || 0;
+        lastCurrents = Math.sqrt(uo*uo + vo*vo);
+      }
+      
+      // Generar predicción para los próximos días
+      const predicciones = [];
+      const ahora = new Date();
+      const numPredicciones = parseInt(dias);
+      
+      // Simular una posible tormenta en los próximos días para ilustrar cambios en el riesgo
+      for (let i = 0; i < numPredicciones; i++) {
+        const fecha = new Date(ahora);
+        fecha.setDate(fecha.getDate() + i);
+        
+        // Simular un escenario de tormenta que llega en 3 días, alcanza su pico, y luego baja
+        let factorOlas = 1.0;
+        if (i >= 3 && i <= 5) {
+          // La tormenta llega en día 3 y alcanza su pico en día 5
+          factorOlas = 1.0 + (i - 2) * 0.4;
+        } else if (i > 5) {
+          // La tormenta disminuye después del día 5
+          factorOlas = 2.2 - (i - 5) * 0.3;
+          factorOlas = Math.max(1.0, factorOlas);
+        }
+        
+        // Simular alturas de ola basadas en último valor conocido y factor de tormenta
+        const alturaOla = lastWaveHeight * factorOlas;
+        const alturaOlaPrevia = i > 0 ? predicciones[i-1].wave_height : lastWaveHeight;
+        
+        // Simular corrientes
+        const corrientes = lastCurrents * (0.8 + 0.4 * factorOlas);
+        
+        // Calcular índice de riesgo siguiendo la misma lógica que en el endpoint anterior
+        const pesoActual = 0.3;
+        const pesoPrevio = 0.7;
+        const pesoCorriente = 0.2;
+        
+        let contribucionActual = 0;
+        if (alturaOla < 1.5) {
+          contribucionActual = alturaOla / 1.5 * 3;
+        } else if (alturaOla < 3) {
+          contribucionActual = 3 + (alturaOla - 1.5) / 1.5 * 3;
+        } else {
+          contribucionActual = 6 + Math.min(4, (alturaOla - 3) * 2);
+        }
+        
+        let contribucionPrevia = 0;
+        if (alturaOlaPrevia < 1.5) {
+          contribucionPrevia = alturaOlaPrevia / 1.5 * 3;
+        } else if (alturaOlaPrevia < 3) {
+          contribucionPrevia = 3 + (alturaOlaPrevia - 1.5) / 1.5 * 3;
+        } else {
+          contribucionPrevia = 6 + Math.min(4, (alturaOlaPrevia - 3) * 2);
+        }
+        
+        let contribucionCorriente = 0;
+        if (corrientes < 0.3) {
+          contribucionCorriente = corrientes / 0.3 * 3;
+        } else if (corrientes < 0.8) {
+          contribucionCorriente = 3 + (corrientes - 0.3) / 0.5 * 4;
+        } else {
+          contribucionCorriente = 7 + Math.min(3, (corrientes - 0.8) * 5);
+        }
+        
+        const indiceRiesgo = Math.min(10, (
+          pesoActual * contribucionActual + 
+          pesoPrevio * contribucionPrevia + 
+          pesoCorriente * contribucionCorriente
+        ) / (pesoActual + pesoPrevio + pesoCorriente));
+        
+        let nivelRiesgo = 'bajo';
+        if (indiceRiesgo >= 7) {
+          nivelRiesgo = 'alto';
+        } else if (indiceRiesgo >= 3.5) {
+          nivelRiesgo = 'medio';
+        }
+        
+        const probabilidadEscape = indiceRiesgo / 10;
+        
+        predicciones.push({
+          fecha: fecha.toISOString(),
+          wave_height: parseFloat(alturaOla.toFixed(2)),
+          prev_day_wave: parseFloat(alturaOlaPrevia.toFixed(2)),
+          current: parseFloat(corrientes.toFixed(2)),
+          indice: parseFloat(indiceRiesgo.toFixed(1)),
+          nivel: nivelRiesgo,
+          probabilidad: parseFloat(probabilidadEscape.toFixed(2))
+        });
+      }
+      
+      res.json({
+        piscifactoriaId,
+        predicciones
+      });
+    } else {
+      res.status(404).json({ 
+        error: 'No hay suficientes datos históricos para generar una predicción',
+        piscifactoriaId
+      });
+    }
+  } catch (error) {
+    console.error('Error al generar predicción de riesgo:', error);
+    res.status(500).json({ 
+      error: 'Error al generar predicción de riesgo',
+      details: error.message
+    });
+  }
+});
+
+router.get('/riesgo/actual', async (req, res) => {
+  try {
+    const result = await queryDB(`
+      WITH ultimos_datos AS (
+        SELECT 
+          p.id as piscifactoria_id,
+          p.nombre,
+          p.provincia,
+          pe.fecha,
+          pe.altura_olas,
+          pe.altura_olas_dia_anterior,
+          pe.velocidad_corriente,
+          pe.indice_riesgo,
+          pe.nivel_riesgo,
+          pe.prediccion_probabilidad,
+          ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY pe.fecha DESC) as rn
+        FROM gloria.piscifactorias p
+        JOIN gloria.prediccion_escapes pe ON p.id = pe.piscifactoria_id
+        WHERE p.tipo = 'marina' AND p.activo = TRUE
+      )
+      SELECT * FROM ultimos_datos WHERE rn = 1
+      ORDER BY indice_riesgo DESC
+    `);
+    
+    res.json(result.success ? result.data : []);
+  } catch (error) {
+    console.error('Error al obtener datos de riesgo actual:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+router.get('/riesgo/historico/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  const { desde, hasta } = req.query;
+  
+  try {
+    const result = await queryDB(`
+      SELECT 
+        fecha,
+        altura_olas,
+        altura_olas_dia_anterior,
+        velocidad_corriente,
+        indice_riesgo,
+        nivel_riesgo,
+        prediccion_probabilidad
+      FROM gloria.prediccion_escapes
+      WHERE piscifactoria_id = $1
+      AND fecha BETWEEN $2::date AND $3::date
+      ORDER BY fecha
+    `, [piscifactoriaId, desde || '2022-01-01', hasta || 'NOW()']);
+    
+    res.json(result.success ? result.data : []);
+  } catch (error) {
+    console.error('Error al obtener histórico de riesgo:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+// Nuevo endpoint para obtener predicciones de escapes basadas en la tabla prediccion_escapes
+router.get('/predicciones/escapes/:id', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  
+  try {
+    // Obtener la predicción más reciente para esta piscifactoría
+    const result = await queryDB(`
+      SELECT 
+        pe.id,
+        pe.piscifactoria_id,
+        p.nombre as piscifactoria_nombre,
+        pe.fecha,
+        pe.altura_olas,
+        pe.altura_olas_dia_anterior,
+        pe.velocidad_corriente,
+        pe.indice_riesgo,
+        pe.nivel_riesgo,
+        pe.prediccion_probabilidad,
+        pe.fecha_prediccion
+      FROM gloria.prediccion_escapes pe
+      JOIN gloria.piscifactorias p ON pe.piscifactoria_id = p.id
+      WHERE pe.piscifactoria_id = $1
+      ORDER BY pe.fecha DESC, pe.fecha_prediccion DESC
+      LIMIT 1
+    `, [piscifactoriaId]);
+    
+    if (result.success && result.data.length > 0) {
+      const prediccion = result.data[0];
+      
+      // Calcular porcentaje de riesgo basado en el índice (0-10 a 0-100%)
+      const riesgoPorcentaje = Math.min(100, Math.round(prediccion.indice_riesgo * 10));
+      
+      // Crear respuesta con formato amigable para el frontend
+      res.json({
+        id: prediccion.id,
+        piscifactoria: {
+          id: prediccion.piscifactoria_id,
+          nombre: prediccion.piscifactoria_nombre
+        },
+        fecha: prediccion.fecha,
+        riesgo: {
+          indice: parseFloat(prediccion.indice_riesgo.toFixed(1)),
+          porcentaje: riesgoPorcentaje,
+          nivel: prediccion.nivel_riesgo,
+          probabilidad: parseFloat((prediccion.prediccion_probabilidad * 100).toFixed(1))
+        },
+        factores: [
+          {
+            nombre: "Altura de olas (día anterior)",
+            valor: parseFloat(prediccion.altura_olas_dia_anterior.toFixed(2)),
+            unidad: "m",
+            contribucion: Math.round(prediccion.altura_olas_dia_anterior * 2) // Estimación simplificada
+          },
+          {
+            nombre: "Altura de olas actual",
+            valor: parseFloat(prediccion.altura_olas.toFixed(2)),
+            unidad: "m",
+            contribucion: Math.round(prediccion.altura_olas * 1.5) // Estimación simplificada
+          },
+          {
+            nombre: "Velocidad de corriente",
+            valor: parseFloat(prediccion.velocidad_corriente.toFixed(2)),
+            unidad: "m/s",
+            contribucion: Math.round(prediccion.velocidad_corriente * 5) // Estimación simplificada
+          }
+        ],
+        fecha_actualizacion: prediccion.fecha_prediccion
+      });
+    } else {
+      res.status(404).json({ 
+        error: 'No se encontraron predicciones para esta piscifactoría',
+        piscifactoriaId
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener predicción de escape:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener predicción de escape',
+      details: error.message
+    });
+  }
+});
+
+// Nuevo endpoint para obtener historial de predicciones
+router.get('/predicciones/escapes/:id/historial', async (req, res) => {
+  const piscifactoriaId = parseInt(req.params.id, 10);
+  const { dias = 30 } = req.query; // Por defecto, mostrar últimos 30 días
+  
+  try {
+    // Obtener predicciones para este período
+    const result = await queryDB(`
+      SELECT 
+        pe.fecha,
+        pe.indice_riesgo,
+        pe.nivel_riesgo,
+        pe.prediccion_probabilidad,
+        pe.altura_olas,
+        pe.altura_olas_dia_anterior,
+        pe.velocidad_corriente
+      FROM gloria.prediccion_escapes pe
+      WHERE pe.piscifactoria_id = $1
+      AND pe.fecha > CURRENT_DATE - INTERVAL '1 day' * $2
+      ORDER BY pe.fecha
+    `, [piscifactoriaId, dias]);
+    
+    if (result.success) {
+      // Transformar datos para incluir porcentaje
+      const predicciones = result.data.map(pred => ({
+        fecha: pred.fecha,
+        indice_riesgo: parseFloat(pred.indice_riesgo.toFixed(1)),
+        porcentaje_riesgo: Math.min(100, Math.round(pred.indice_riesgo * 10)),
+        nivel_riesgo: pred.nivel_riesgo,
+        probabilidad: parseFloat((pred.prediccion_probabilidad * 100).toFixed(1)),
+        factores: {
+          altura_olas: parseFloat(pred.altura_olas.toFixed(2)),
+          altura_olas_anterior: parseFloat(pred.altura_olas_dia_anterior.toFixed(2)),
+          velocidad_corriente: parseFloat(pred.velocidad_corriente.toFixed(2))
+        }
+      }));
+      
+      res.json({
+        piscifactoriaId,
+        dias: parseInt(dias),
+        predicciones
+      });
+    } else {
+      res.json({
+        piscifactoriaId,
+        dias: parseInt(dias),
+        predicciones: []
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener historial de predicciones:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener historial de predicciones',
+      details: error.message
+    });
+  }
+});
+
+// Nuevo endpoint para obtener resumen de riesgo para todas las piscifactorías
+router.get('/riesgo/resumen', async (req, res) => {
+  try {
+    // Obtener resumen de predicciones más recientes para todas las piscifactorías
+    const result = await queryDB(`
+      WITH ultimas_predicciones AS (
+        SELECT 
+          pe.piscifactoria_id, 
+          MAX(pe.fecha) as ultima_fecha
+        FROM gloria.prediccion_escapes pe
+        GROUP BY pe.piscifactoria_id
+      )
+      SELECT 
+        pe.piscifactoria_id,
+        p.nombre as piscifactoria_nombre,
+        p.tipo as piscifactoria_tipo,
+        ST_X(p.geometria) as longitud,
+        ST_Y(p.geometria) as latitud,
+        pe.fecha,
+        pe.indice_riesgo,
+        pe.nivel_riesgo,
+        pe.prediccion_probabilidad,
+        pe.altura_olas,
+        pe.altura_olas_dia_anterior,
+        pe.velocidad_corriente
+      FROM gloria.prediccion_escapes pe
+      JOIN ultimas_predicciones up ON pe.piscifactoria_id = up.piscifactoria_id AND pe.fecha = up.ultima_fecha
+      JOIN gloria.piscifactorias p ON pe.piscifactoria_id = p.id
+      ORDER BY pe.indice_riesgo DESC
+    `);
+    
+    if (result.success) {
+      // Transformar resultados para incluir porcentaje
+      const resumen = result.data.map(pred => ({
+        piscifactoria: {
+          id: pred.piscifactoria_id,
+          nombre: pred.piscifactoria_nombre,
+          tipo: pred.piscifactoria_tipo,
+          coordenadas: [pred.latitud, pred.longitud]
+        },
+        riesgo: {
+          indice: parseFloat(pred.indice_riesgo.toFixed(1)),
+          porcentaje: Math.min(100, Math.round(pred.indice_riesgo * 10)),
+          nivel: pred.nivel_riesgo,
+          probabilidad: parseFloat((pred.prediccion_probabilidad * 100).toFixed(1))
+        },
+        fecha: pred.fecha
+      }));
+      
+      res.json(resumen);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    console.error('Error al obtener resumen de riesgo:', error);
+    res.status(500).json({ 
+      error: 'Error al obtener resumen de riesgo',
+      details: error.message
+    });
+  }
+});
+
 // Ruta para obtener listado de piscifactorías
 router.get('/piscifactorias', async (req, res) => {
   // Obtener datos de la base de datos
@@ -466,50 +1041,110 @@ router.get('/piscifactorias/:id', async (req, res) => {
 
 // Ruta para obtener datos ambientales
 router.get('/datos-ambientales', async (req, res) => {
-  const { fecha, variable } = req.query;
-  
-  // Validar parámetros
+  const { fecha, variable, piscifactoriaId } = req.query;
+
   if (!fecha || !variable) {
     return res.status(400).json({ error: 'Se requieren los parámetros fecha y variable' });
   }
-  
-  // Obtener datos de la base de datos
-  const result = await queryDB(`
-    SELECT 
-      va.id,
-      va.variable_nombre,
-      va.fecha_tiempo,
-      va.valor,
-      ST_X(va.geometria) as lng,
-      ST_Y(va.geometria) as lat
-    FROM gloria.variables_ambientales va
-    WHERE va.variable_nombre = $1
-    AND DATE(va.fecha_tiempo) = DATE($2)
-    AND va.piscifactoria_id IS NULL
-  `, [variable, fecha]);
-  
-  // Si hay datos en la base de datos
-  if (result.success && result.data.length > 0) {
-    // Transformar datos al formato esperado por el frontend
-    const datos = result.data.map(row => ({
-      lat: row.lat || 0,
-      lng: row.lng || 0,
-      valor: parseFloat((row.valor || 0).toFixed(2))
-    }));
+
+  try {
+    // Mapeo de variables según el tipo
+    let variablesToCheck = [variable];
     
+    // Añadir nombres alternativos de variables
+    if (variable === 'temperatura' || variable === 'temperature' || variable === 'temp') {
+      variablesToCheck = ['temperatura', 'temperature', 'temp', 'temperatura_agua'];
+    } else if (variable === 'uo' || variable === 'corrientes' || variable === 'corriente_u') {
+      variablesToCheck = ['uo', 'corrientes', 'current', 'corriente_u'];
+    } else if (variable === 'vo' || variable === 'corriente_v') {
+      variablesToCheck = ['vo', 'corriente_v'];
+    } else if (variable === 'so' || variable === 'salinidad') {
+      variablesToCheck = ['so', 'salinidad'];
+    } else if (variable === 'hfds' || variable === 'flujo_calor') {
+      variablesToCheck = ['hfds', 'hfls', 'hfss', 'flujo_calor_superficie'];
+    } else if (variable === 'zos' || variable === 'altura_superficie') {
+      variablesToCheck = ['zos', 'altura_superficie_mar'];
+    }
+    
+    // Construir la consulta SQL dinámica
+    const placeholders = variablesToCheck.map((_, i) => `$${i + 1}`).join(',');
+    let sql = `
+      SELECT 
+        va.id,
+        va.variable_nombre,
+        va.fecha_tiempo,
+        va.valor,
+        ST_AsGeoJSON(va.geometria)::json as geometria
+      FROM gloria.variables_ambientales va
+      WHERE va.variable_nombre IN (${placeholders})
+      AND DATE(va.fecha_tiempo) = DATE($${variablesToCheck.length + 1})
+    `;
+    
+    // Parámetros iniciales
+    let params = [...variablesToCheck, fecha];
+    
+    // Añadir filtro por piscifactoría si se proporciona
+    if (piscifactoriaId) {
+      sql += ` AND va.piscifactoria_id = $${params.length + 1}`;
+      params.push(piscifactoriaId);
+    } else {
+      sql += ` AND va.piscifactoria_id IS NULL`;
+    }
+    
+    // Limitar resultados para rendimiento
+    sql += ` LIMIT 500`;
+
+    console.log("SQL:", sql);
+    console.log("Params:", params);
+    
+    const result = await queryDB(sql, params);
+
+    // Si no hay resultados, probar con fechas alternativas (buscar la más cercana)
+    if (!result.success || result.data.length === 0) {
+      console.log(`No se encontraron datos para ${variable} en fecha ${fecha}, buscando fecha más cercana`);
+      
+      // Construir consulta para encontrar la fecha más cercana
+      const dateQuery = `
+        SELECT DISTINCT DATE(fecha_tiempo) as fecha
+        FROM gloria.variables_ambientales
+        WHERE variable_nombre IN (${placeholders})
+        ORDER BY ABS(DATE(fecha_tiempo) - DATE($${variablesToCheck.length + 1})::date)
+        LIMIT 1
+      `;
+      
+      const dateResult = await queryDB(dateQuery, [...variablesToCheck, fecha]);
+      
+      if (dateResult.success && dateResult.data.length > 0) {
+        const closestDate = dateResult.data[0].fecha;
+        console.log(`Fecha más cercana encontrada: ${closestDate}`);
+        
+        // Actualizar parámetros con la nueva fecha
+        params[variablesToCheck.length] = closestDate;
+        
+        // Ejecutar consulta con la fecha más cercana
+        const newResult = await queryDB(sql, params);
+        
+        if (newResult.success && newResult.data.length > 0) {
+          return res.json({
+            fecha: closestDate,
+            variable,
+            nota: `No se encontraron datos para la fecha solicitada (${fecha}). Se muestran datos de la fecha más cercana (${closestDate}).`,
+            datos: newResult.data
+          });
+        }
+      }
+    }
+
     return res.json({
       fecha,
       variable,
-      datos
+      datos: result.success ? result.data : []
     });
+    
+  } catch (error) {
+    console.error(`Error al obtener datos ambientales para ${variable}:`, error);
+    res.status(500).json({ error: 'Error al consultar la base de datos' });
   }
-  
-  // Si no hay datos, devolver array vacío
-  res.json({
-    fecha,
-    variable,
-    datos: []
-  });
 });
 
 // Ruta para obtener alertas
@@ -779,12 +1414,13 @@ router.get('/predicciones/piscifactoria/:id', async (req, res) => {
 });
 
 // Ruta para obtener datos históricos para gráficos
+// Ruta para obtener datos históricos para gráficos
 router.get('/historico/:variable', async (req, res) => {
   const { variable } = req.params;
   const { piscifactoriaId, periodo, fechaInicio, fechaFin } = req.query;
   
   console.log(`Solicitud de datos históricos recibida: ${variable}`);
-  console.log(`Parámetros: periodo=${periodo}, piscifactoriaId=${piscifactoriaId}`);
+  console.log(`Parámetros: periodo=${periodo}, piscifactoriaId=${piscifactoriaId}, fechaInicio=${fechaInicio}, fechaFin=${fechaFin}`);
   
   // Validar parámetros
   if (!variable) {
@@ -821,47 +1457,45 @@ router.get('/historico/:variable', async (req, res) => {
     }
   }
   
-  // Construir la consulta
-  let query, queryParams;
-  
   try {
-    // Convertir piscifactoriaId a número si está presente
-    const piscId = piscifactoriaId ? parseInt(piscifactoriaId, 10) : null;
+    // Mapeo de variables según el tipo
+    let variablesToCheck = [variable];
     
-    console.log(`Fechas: desde ${fechaInicial.toISOString()} hasta ${fechaFinal.toISOString()}`);
-    console.log(`PiscifactoriaId (convertido): ${piscId}`);
-    
-    if (piscId) {
-      // Consulta para una piscifactoría específica
-      query = `
-        SELECT 
-          fecha_tiempo AS fecha,
-          valor
-        FROM gloria.variables_ambientales
-        WHERE variable_nombre = $1
-        AND fecha_tiempo BETWEEN $2 AND $3
-        AND piscifactoria_id = $4
-        AND valor IS NOT NULL 
-        AND valor != 'NaN'
-        ORDER BY fecha_tiempo
-      `;
-      queryParams = [variable, fechaInicial.toISOString(), fechaFinal.toISOString(), piscId];
-    } else {
-      // Consulta para promedios generales (sin piscifactoría específica)
-      query = `
-        SELECT 
-          fecha_tiempo AS fecha,
-          AVG(valor) AS valor
-        FROM gloria.variables_ambientales
-        WHERE variable_nombre = $1
-        AND fecha_tiempo BETWEEN $2 AND $3
-        AND valor IS NOT NULL 
-        AND valor != 'NaN'
-        GROUP BY fecha_tiempo
-        ORDER BY fecha_tiempo
-      `;
-      queryParams = [variable, fechaInicial.toISOString(), fechaFinal.toISOString()];
+    // Añadir nombres alternativos de variables
+    if (variable === 'temperatura' || variable === 'temperature' || variable === 'temp') {
+      variablesToCheck = ['temperatura', 'temperature', 'temp', 'temperatura_agua'];
+    } else if (variable === 'uo' || variable === 'corrientes' || variable === 'corriente_u') {
+      variablesToCheck = ['uo', 'corrientes', 'current', 'corriente_u'];
+    } else if (variable === 'vo' || variable === 'corriente_v') {
+      variablesToCheck = ['vo', 'corriente_v'];
+    } else if (variable === 'so' || variable === 'salinidad') {
+      variablesToCheck = ['so', 'salinidad'];
     }
+    
+    // Construir la consulta SQL
+    let query = `
+      SELECT 
+        fecha_tiempo AS fecha,
+        valor
+      FROM gloria.variables_ambientales
+      WHERE variable_nombre IN (${variablesToCheck.map((_, i) => `$${i + 3}`).join(',')})
+      AND fecha_tiempo BETWEEN $1 AND $2
+    `;
+    
+    // Parámetros para la consulta
+    let queryParams = [fechaInicial.toISOString(), fechaFinal.toISOString(), ...variablesToCheck];
+    
+    // Añadir condición para piscifactoría si se proporciona
+    if (piscifactoriaId) {
+      query += ` AND piscifactoria_id = $${queryParams.length + 1}`;
+      queryParams.push(piscifactoriaId);
+    }
+    
+    // Filtrar valores nulos o inválidos
+    query += ` AND valor IS NOT NULL AND valor != 'NaN' AND valor > -9990`;
+    
+    // Ordenar por fecha
+    query += ` ORDER BY fecha_tiempo`;
     
     console.log("Ejecutando consulta SQL:", query);
     console.log("Parámetros:", queryParams);
@@ -882,7 +1516,7 @@ router.get('/historico/:variable', async (req, res) => {
     
     res.json({
       variable,
-      piscifactoriaId: piscId,
+      piscifactoriaId: piscifactoriaId ? parseInt(piscifactoriaId, 10) : null,
       periodo,
       fechaInicio: fechaInicial.toISOString(),
       fechaFin: fechaFinal.toISOString(),

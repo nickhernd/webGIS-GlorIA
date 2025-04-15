@@ -10,7 +10,7 @@ Este script:
 4. Mueve los archivos procesados a un directorio de procesados
 
 Proyecto: WebGIS GlorIA
-Fecha: Febrero 2025
+Fecha: Abril 2025
 """
 
 import os
@@ -45,6 +45,9 @@ ROOT_DIR = Path(os.path.expanduser("~/webGIS-GlorIA"))
 DOWNLOAD_DIR = ROOT_DIR / "databases" / "copernicus_marine"
 PROCESSED_DIR = DOWNLOAD_DIR / "processed"
 FAILED_DIR = DOWNLOAD_DIR / "failed"
+
+# Variables principales a procesar - PRIORIZAR ESTAS
+PRIORITY_VARIABLES = ['temperatura', 'temperature', 'temp', 'uo', 'vo', 'so', 'salinity', 'currents']
 
 # Crear directorios si no existen
 for directory in [DOWNLOAD_DIR, PROCESSED_DIR, FAILED_DIR]:
@@ -141,7 +144,7 @@ def get_or_create_dataset(conn, dataset_name, dataset_id, variables, source="Cop
         logger.error(f"Error al obtener/crear dataset en la base de datos: {e}")
         raise
 
-def find_closest_piscifactoria(conn, lon, lat, max_distance_km=5.0):
+def find_closest_piscifactoria(conn, lon, lat, max_distance_km=10.0):
     """
     Encuentra la piscifactoría más cercana a las coordenadas dadas,
     dentro de una distancia máxima.
@@ -156,30 +159,65 @@ def find_closest_piscifactoria(conn, lon, lat, max_distance_km=5.0):
             SELECT id, ST_Distance(
                 geometria::geography, 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
-            ) as distance_meters
+            ) as distance_meters,
+            CASE 
+                WHEN geom_area IS NOT NULL THEN 
+                  ST_Contains(geom_area, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
+                ELSE false
+            END as dentro_del_area
             FROM gloria.piscifactorias
             WHERE ST_DWithin(
                 geometria::geography, 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
                 %s * 1000  -- Convertir km a metros
             )
-            ORDER BY distance_meters ASC
+            ORDER BY dentro_del_area DESC, distance_meters ASC
             LIMIT 1
             """,
-            (lon, lat, lon, lat, max_distance_km)
+            (lon, lat, lon, lat, lon, lat, max_distance_km)
         )
         
         result = cursor.fetchone()
         
         if result:
-            piscifactoria_id, distance = result
-            logger.info(f"Piscifactoría más cercana (ID: {piscifactoria_id}) a {distance:.2f} metros")
+            piscifactoria_id, distance, dentro_area = result
+            if dentro_area:
+                logger.debug(f"Punto dentro del área de piscifactoría ID: {piscifactoria_id}")
+            else:
+                logger.debug(f"Piscifactoría más cercana (ID: {piscifactoria_id}) a {distance:.2f} metros")
             return piscifactoria_id
         else:
+            logger.debug(f"No se encontró piscifactoría cercana para coordenadas ({lon}, {lat})")
             return None
     except Exception as e:
         logger.error(f"Error al buscar piscifactoría cercana: {e}")
         return None
+
+def normalize_variable_name(var_name):
+    """Normaliza los nombres de variables a un formato estándar."""
+    var_mapping = {
+        'temperature': 'temperatura',
+        'temp': 'temperatura',
+        'sst': 'temperatura',
+        'sea_water_temperature': 'temperatura',
+        'thetao': 'temperatura',
+        
+        'salinity': 'salinidad',
+        'so': 'salinidad',
+        'sea_water_salinity': 'salinidad',
+        
+        'currents': 'corrientes',
+        'current': 'corrientes',
+        'uo': 'corriente_u',
+        'vo': 'corriente_v',
+        'sea_water_velocity': 'corrientes',
+        
+        'oxygen': 'oxigeno',
+        'o2': 'oxigeno',
+        'dissolved_oxygen': 'oxigeno'
+    }
+    
+    return var_mapping.get(var_name.lower(), var_name.lower())
 
 def process_netcdf_file(file_path, dataset_db_id, conn):
     """
@@ -188,158 +226,319 @@ def process_netcdf_file(file_path, dataset_db_id, conn):
     try:
         logger.info(f"Procesando archivo: {file_path}")
         
-        # Abrir el archivo NetCDF
-        with Dataset(file_path, 'r') as nc:
-            # Obtener las variables
-            variables = [var for var in nc.variables if var not in ['time', 'lat', 'lon', 'latitude', 'longitude', 'depth']]
+        # Abrir el archivo NetCDF con modo de manejo de memoria eficiente
+        with Dataset(file_path, 'r', diskless=False, persist=False) as nc:
+            # Inspeccionar estructura detallada del archivo
+            logger.info(f"Estructura del archivo NetCDF:")
+            logger.info(f"Dimensiones: {nc.dimensions.keys()}")
+            logger.info(f"Variables: {nc.variables.keys()}")
+            logger.info(f"Atributos globales: {nc.ncattrs()}")
             
-            # Identificar las variables de coordenadas
-            lat_var_name = 'latitude' if 'latitude' in nc.variables else 'lat'
-            lon_var_name = 'longitude' if 'longitude' in nc.variables else 'lon'
+            # Obtener las variables y filtrar las que no son datos (coordenadas, etc.)
+            all_variables = [var for var in nc.variables 
+                             if var not in ['time', 'lat', 'lon', 'latitude', 'longitude', 
+                                           'depth', 'level', 'height']]
+            
+            # Identificar variables de coordenadas
+            lat_var_name = next((v for v in nc.variables if v.lower() in ['latitude', 'lat']), None)
+            lon_var_name = next((v for v in nc.variables if v.lower() in ['longitude', 'lon']), None)
+            time_var_name = next((v for v in nc.variables if v.lower() in ['time', 't']), None)
+            depth_var_name = next((v for v in nc.variables if v.lower() in ['depth', 'deptht', 'level']), None)
+            
+            if not all([lat_var_name, lon_var_name, time_var_name]):
+                logger.error(f"No se pudieron identificar las variables de coordenadas básicas en {file_path}")
+                return False
             
             # Obtener las coordenadas
             lats = nc.variables[lat_var_name][:]
             lons = nc.variables[lon_var_name][:]
             
             # Obtener los tiempos
-            times = nc.variables['time'][:]
-            time_units = nc.variables['time'].units
+            times = nc.variables[time_var_name][:]
+            time_units = nc.variables[time_var_name].units
             
             # Convertir tiempos a fechas
             import netCDF4
             dates = netCDF4.num2date(times, time_units)
             
             # Verificar si hay dimensión de profundidad
-            has_depth = 'depth' in nc.variables
-            depths = nc.variables['depth'][:] if has_depth else None
+            has_depth = depth_var_name is not None
+            depths = nc.variables[depth_var_name][:] if has_depth else [None]
+            
+            # Para los archivos grandes, reducir el número de puntos
+            max_points = 100000  # Limitar el número máximo de puntos
+            
+            # Calcular factores de muestreo para no exceder max_points
+            total_points = len(lats) * len(lons) * len(dates) * (len(depths) if has_depth else 1)
+            logger.info(f"Archivo contiene {total_points} puntos potenciales")
+            
+            sample_factor = max(1, int(np.sqrt(total_points / max_points)))
+            
+            if sample_factor > 1:
+                logger.info(f"Aplicando factor de muestreo {sample_factor} para reducir puntos")
+            
+            # Subconjunto de índices para coordenadas
+            lat_indices = list(range(0, len(lats), sample_factor))
+            lon_indices = list(range(0, len(lons), sample_factor))
+            time_indices = list(range(len(dates)))
+            depth_indices = list(range(len(depths))) if has_depth else [0]
+            
+            # Mapear y filtrar variables prioritarias
+            variables = []
+            for var in all_variables:
+                # Normalizar nombre
+                norm_var = normalize_variable_name(var)
+                
+                # Añadir la variable si es prioritaria o hay pocas variables
+                if norm_var in [normalize_variable_name(v) for v in PRIORITY_VARIABLES] or len(all_variables) <= 3:
+                    variables.append((var, norm_var))
+            
+            # Si no hay variables prioritarias, usar todas
+            if not variables:
+                variables = [(var, normalize_variable_name(var)) for var in all_variables]
+                logger.warning(f"No se encontraron variables prioritarias en {file_path}. Procesando todas las variables.")
+            else:
+                logger.info(f"Procesando variables prioritarias: {[v[0] for v in variables]}")
             
             # Preparar cursor para inserciones masivas
             cursor = conn.cursor()
             
-            # Contador de registros insertados
+            # Contador total de registros
             inserted_count = 0
             
             # Para cada variable
-            for var_name in variables:
-                logger.info(f"Procesando variable: {var_name}")
+            for var_name, db_var_name in variables:
+                logger.info(f"Procesando variable: {var_name} -> {db_var_name}")
                 
-                # Obtener los datos de la variable
-                var_data = nc.variables[var_name][:]
-                
-                # Preparar los datos para inserción
+                # Lista para valores a insertar de esta variable
                 values_to_insert = []
                 
-                # Para cada tiempo
-                for t_idx, date in enumerate(dates):
-                    # Convertir la fecha a formato ISO
-                    date_str = date.strftime('%Y-%m-%dT%H:%M:%S')
+                # Obtener los datos de la variable con manejo específico para masked arrays
+                var = nc.variables[var_name]
+                
+                # Determinar la estructura de los datos
+                var_shape = var.shape
+                
+                # Procesar según la forma de los datos
+                if len(var_shape) == 4:  # [tiempo, profundidad, lat, lon]
+                    # Contar puntos procesados para mostrar progreso
+                    processed = 0
+                    total = len(time_indices) * len(depth_indices) * len(lat_indices) * len(lon_indices)
                     
-                    # Si hay profundidad, procesar cada nivel
-                    if has_depth:
-                        for d_idx, depth in enumerate(depths):
-                            # Para cada punto de la grilla espacial
-                            for y_idx, lat in enumerate(lats):
-                                for x_idx, lon in enumerate(lons):
-                                    # Obtener el valor
-                                    if len(var_data.shape) == 4:  # Tiempo, profundidad, lat, lon
-                                        value = var_data[t_idx, d_idx, y_idx, x_idx]
-                                    else:
+                    for t_idx in time_indices:
+                        date = dates[t_idx]
+                        date_str = date.strftime('%Y-%m-%dT%H:%M:%S')
+                        
+                        for d_idx in depth_indices:
+                            depth = depths[d_idx] if has_depth else None
+                            
+                            # Procesar por bloques para cada combinación de tiempo y profundidad
+                            chunk_values = []
+                            
+                            for y_idx in lat_indices:
+                                lat = lats[y_idx]
+                                
+                                for x_idx in lon_indices:
+                                    lon = lons[x_idx]
+                                    processed += 1
+                                    
+                                    # Mostrar progreso cada 10%
+                                    if processed % max(1, int(total * 0.1)) == 0:
+                                        progress = processed / total * 100
+                                        logger.info(f"Progreso: {progress:.1f}% ({processed}/{total})")
+                                    
+                                    try:
+                                        # Acceder al valor con manejo seguro
+                                        value_mask = var[t_idx, d_idx, y_idx, x_idx] if has_depth else var[t_idx, y_idx, x_idx]
+                                        
+                                        # Para arreglos enmascarados
+                                        if hasattr(value_mask, 'mask') and value_mask.mask:
+                                            continue
+                                        
+                                        # Convertir a valor Python nativo si es un tipo NumPy
+                                        value = np.asscalar(value_mask) if hasattr(value_mask, 'item') else float(value_mask)
+                                        
+                                        # Validar el valor
+                                        if np.isnan(value) or value < -9990:
+                                            continue
+                                        
+                                        # Buscar piscifactoría cercana
+                                        piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat), max_distance_km=20.0)
+                                        
+                                        # Preparar punto geográfico
+                                        geom = f"SRID=4326;POINT({float(lon)} {float(lat)})"
+                                        
+                                        # Añadir a la lista para inserción
+                                        chunk_values.append((
+                                            dataset_db_id,
+                                            db_var_name,
+                                            date_str,
+                                            value,
+                                            piscifactoria_id,
+                                            geom,
+                                            float(depth) if depth is not None else None,
+                                            90  # Calidad por defecto
+                                        ))
+                                    except Exception as e:
+                                        # Registrar error pero continuar con el siguiente punto
+                                        continue
+                            
+                            # Añadir valores de este chunk a la lista principal
+                            values_to_insert.extend(chunk_values)
+                            
+                            # Insertar cada chunk de inmediato para liberar memoria
+                            if len(values_to_insert) >= 1000:
+                                try:
+                                    execute_values(cursor, """
+                                        INSERT INTO gloria.variables_ambientales
+                                        (dataset_id, variable_nombre, fecha_tiempo, valor, piscifactoria_id, geometria, profundidad, calidad)
+                                        VALUES %s
+                                        ON CONFLICT (variable_nombre, fecha_tiempo, geometria) DO UPDATE
+                                        SET valor = EXCLUDED.valor, calidad = EXCLUDED.calidad
+                                    """, values_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s)")
+                                    
+                                    conn.commit()
+                                    inserted_count += len(values_to_insert)
+                                    logger.info(f"Insertados {len(values_to_insert)} registros (total: {inserted_count})")
+                                    values_to_insert = []  # Liberar memoria
+                                except Exception as e:
+                                    conn.rollback()
+                                    logger.error(f"Error al insertar lote: {e}")
+                                    values_to_insert = []  # Liberar memoria aunque haya error
+                
+                elif len(var_shape) == 3:  # [tiempo, lat, lon]
+                    # Contar puntos procesados para mostrar progreso
+                    processed = 0
+                    total = len(time_indices) * len(lat_indices) * len(lon_indices)
+                    
+                    for t_idx in time_indices:
+                        date = dates[t_idx]
+                        date_str = date.strftime('%Y-%m-%dT%H:%M:%S')
+                        
+                        # Procesar por bloques para cada momento del tiempo
+                        chunk_values = []
+                        
+                        for y_idx in lat_indices:
+                            lat = lats[y_idx]
+                            
+                            for x_idx in lon_indices:
+                                lon = lons[x_idx]
+                                processed += 1
+                                
+                                # Mostrar progreso cada 10%
+                                if processed % max(1, int(total * 0.1)) == 0:
+                                    progress = processed / total * 100
+                                    logger.info(f"Progreso: {progress:.1f}% ({processed}/{total})")
+                                
+                                try:
+                                    # Acceder al valor con manejo seguro
+                                    value_mask = var[t_idx, y_idx, x_idx]
+                                    
+                                    # Para arreglos enmascarados
+                                    if hasattr(value_mask, 'mask') and value_mask.mask:
                                         continue
                                     
-                                    # Saltar valores nulos o NaN
-                                    if np.isnan(value) or value is None or value < -9990:
+                                    # Convertir a valor Python nativo si es un tipo NumPy
+                                    if hasattr(value_mask, 'item'):
+                                        value = value_mask.item()
+                                    else:
+                                        value = float(value_mask)
+                                    
+                                    # Validar el valor
+                                    if np.isnan(value) or value < -9990:
                                         continue
                                     
                                     # Buscar piscifactoría cercana
-                                    piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat))
+                                    piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat), max_distance_km=20.0)
                                     
                                     # Preparar punto geográfico
                                     geom = f"SRID=4326;POINT({float(lon)} {float(lat)})"
                                     
-                                    # Añadir a la lista para inserción masiva
-                                    values_to_insert.append((
+                                    # Añadir a la lista para inserción
+                                    chunk_values.append((
                                         dataset_db_id,
-                                        var_name,
+                                        db_var_name,
                                         date_str,
-                                        float(value),
+                                        value,
                                         piscifactoria_id,
                                         geom,
-                                        float(depth),
+                                        None,  # No hay profundidad
                                         90  # Calidad por defecto
                                     ))
-                    else:
-                        # Sin profundidad, procesar directamente la grilla espacial
-                        for y_idx, lat in enumerate(lats):
-                            for x_idx, lon in enumerate(lons):
-                                # Obtener el valor
-                                if len(var_data.shape) == 3:  # Tiempo, lat, lon
-                                    value = var_data[t_idx, y_idx, x_idx]
-                                else:
+                                except Exception as e:
+                                    # Registrar error pero continuar con el siguiente punto
                                     continue
+                        
+                        # Añadir valores de este chunk a la lista principal
+                        values_to_insert.extend(chunk_values)
+                        
+                        # Insertar cada chunk de inmediato para liberar memoria
+                        if len(values_to_insert) >= 1000:
+                            try:
+                                execute_values(cursor, """
+                                    INSERT INTO gloria.variables_ambientales
+                                    (dataset_id, variable_nombre, fecha_tiempo, valor, piscifactoria_id, geometria, profundidad, calidad)
+                                    VALUES %s
+                                    ON CONFLICT (variable_nombre, fecha_tiempo, geometria) DO UPDATE
+                                    SET valor = EXCLUDED.valor, calidad = EXCLUDED.calidad
+                                """, values_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s)")
                                 
-                                # Saltar valores nulos o NaN
-                                if np.isnan(value) or value is None or value < -9990:
-                                    continue
-                                
-                                # Buscar piscifactoría cercana
-                                piscifactoria_id = find_closest_piscifactoria(conn, float(lon), float(lat))
-                                
-                                # Preparar punto geográfico
-                                geom = f"SRID=4326;POINT({float(lon)} {float(lat)})"
-                                
-                                # Añadir a la lista para inserción masiva
-                                values_to_insert.append((
-                                    dataset_db_id,
-                                    var_name,
-                                    date_str,
-                                    float(value),
-                                    piscifactoria_id,
-                                    geom,
-                                    None,  # No hay profundidad
-                                    90  # Calidad por defecto
-                                ))
+                                conn.commit()
+                                inserted_count += len(values_to_insert)
+                                logger.info(f"Insertados {len(values_to_insert)} registros (total: {inserted_count})")
+                                values_to_insert = []  # Liberar memoria
+                            except Exception as e:
+                                conn.rollback()
+                                logger.error(f"Error al insertar lote: {e}")
+                                values_to_insert = []  # Liberar memoria aunque haya error
                 
-                # Si hay valores para insertar, hacerlo en bloques para evitar problemas de memoria
+                # Insertar los valores restantes
                 if values_to_insert:
-                    logger.info(f"Insertando {len(values_to_insert)} registros para la variable {var_name}")
-                    
-                    # Insertar en bloques de 1000
-                    batch_size = 1000
-                    for i in range(0, len(values_to_insert), batch_size):
-                        batch = values_to_insert[i:i+batch_size]
+                    try:
                         execute_values(cursor, """
                             INSERT INTO gloria.variables_ambientales
                             (dataset_id, variable_nombre, fecha_tiempo, valor, piscifactoria_id, geometria, profundidad, calidad)
                             VALUES %s
                             ON CONFLICT (variable_nombre, fecha_tiempo, geometria) DO UPDATE
                             SET valor = EXCLUDED.valor, calidad = EXCLUDED.calidad
-                        """, batch, template="(%s, %s, %s, %s, %s, %s, %s, %s)")
+                        """, values_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s)")
                         
-                        inserted_count += len(batch)
                         conn.commit()
-                
+                        inserted_count += len(values_to_insert)
+                        logger.info(f"Insertados {len(values_to_insert)} registros finales (total: {inserted_count})")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.error(f"Error al insertar lote final: {e}")
+            
             logger.info(f"Proceso completado para {file_path}. {inserted_count} registros insertados.")
             
-            # Registrar la importación en la tabla de importaciones
-            cursor.execute("""
-                INSERT INTO gloria.importaciones
-                (dataset_id, fecha_inicio, fecha_fin, fecha_importacion, cantidad_registros, estado, mensaje)
-                VALUES (%s, %s, %s, NOW(), %s, %s, %s)
-            """, (
-                dataset_db_id,
-                dates[0].strftime('%Y-%m-%dT%H:%M:%S'),
-                dates[-1].strftime('%Y-%m-%dT%H:%M:%S'),
-                inserted_count,
-                'completado',
-                f'Archivo: {os.path.basename(file_path)}'
-            ))
-            conn.commit()
+            # Registrar la importación
+            if inserted_count > 0:
+                try:
+                    cursor.execute("""
+                        INSERT INTO gloria.importaciones
+                        (dataset_id, fecha_inicio, fecha_fin, fecha_importacion, cantidad_registros, estado, mensaje)
+                        VALUES (%s, %s, %s, NOW(), %s, %s, %s)
+                    """, (
+                        dataset_db_id,
+                        dates[0].strftime('%Y-%m-%dT%H:%M:%S'),
+                        dates[-1].strftime('%Y-%m-%dT%H:%M:%S'),
+                        inserted_count,
+                        'completado',
+                        f'Archivo: {os.path.basename(file_path)}'
+                    ))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Error al registrar importación: {e}")
             
-            return True
+            return inserted_count > 0
             
     except Exception as e:
         conn.rollback()
         logger.error(f"Error al procesar archivo {file_path}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 def get_dataset_info_from_filename(filename):
@@ -354,25 +553,26 @@ def get_dataset_info_from_filename(filename):
         
         # Mapeo de IDs a nombres descriptivos y variables
         dataset_mapping = {
-            'cmems_mod_med_phy-cur_anfc_4.2km_P1D-m': {
-                'name': 'Corrientes Mediterráneo',
-                'variables': ['uo', 'vo']
-            },
-            'cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m': {
-                'name': 'CO2 Mediterráneo',
-                'variables': ['fgco2', 'spco2']
-            },
-            'cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m': {
-                'name': 'Nutrientes Mediterráneo',
-                'variables': ['nh4', 'no3', 'po4', 'si']
-            },
-            'cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m': {
-                'name': 'Biología Mediterráneo',
-                'variables': ['nppv', 'o2']
-            },
-            'cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m': {
-                'name': 'Turbidez y Clorofila Mediterráneo',
-                'variables': ['CHL', 'SPM', 'TUR']
+            #'cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m': {
+            #    'name': 'Corrientes Mediterráneo',
+            #    'variables': ['uo', 'vo']
+            #},
+            #'cmems_mod_med_phy-cur_anfc_4.2km_P1D-m': {
+            #    'name': 'Corrientes Mediterráneo',
+            #    'variables': ['uo', 'vo']
+            #},
+#
+            #'med-cmcc-sal-rean-d': {
+            #    'name': 'Salinidad Mediterráneo',
+            #    'variables': ['so']
+            #},
+            #'med-cmcc-ssh-rean-d': {
+            #    'name': 'Nivel del Mar Mediterráneo',
+            #    'variables': ['zos']
+            #},
+            'cmems_mod_med_phy-sst_anfc_4.2km_P1D-m': {
+                'name': 'Temperatura Mediterráneo',
+                'variables': ['temperature', 'temperatura']
             }
         }
         
@@ -393,8 +593,8 @@ def detect_variable_thresholds(conn):
     try:
         cursor = conn.cursor()
         
-        # Lista de variables para las que calcular umbrales
-        variables = ['o2', 'CHL', 'TUR', 'no3', 'po4', 'fgco2', 'spco2', 'nppv', 'uo', 'vo']
+        # Lista de variables para las que calcular umbrales (priorizando corrientes, temperatura y salinidad)
+        variables = ['temperatura', 'uo', 'vo', 'so', 'o2']
         
         for var in variables:
             # Calcular estadísticas básicas
@@ -414,21 +614,26 @@ def detect_variable_thresholds(conn):
                 avg, p05, p95 = result
                 
                 # Definir umbrales
-                if var in ['o2']:  # Para oxígeno el umbral mínimo es crítico
-                    umbral_min = p05
-                    umbral_max = p95
-                    umbral_critico_min = p05 * 0.8  # 80% del percentil 5
-                    umbral_critico_max = p95 * 1.2  # 120% del percentil 95
-                elif var in ['uo', 'vo']:  # Para corrientes los umbrales positivos y negativos son importantes
-                    umbral_min = p05
-                    umbral_max = p95
-                    umbral_critico_min = p05 * 1.5  # 150% del percentil 5 (más negativo)
-                    umbral_critico_max = p95 * 1.5  # 150% del percentil 95 (más positivo)
+                if var == 'temperatura':
+                    umbral_min = 18.0  # Temperatura mínima fija
+                    umbral_max = 28.0  # Temperatura máxima fija
+                    umbral_critico_min = 16.0  # Temperatura crítica mínima
+                    umbral_critico_max = 30.0  # Temperatura crítica máxima
+                elif var == 'so':  # Salinidad
+                    umbral_min = 34.0  # Salinidad mínima
+                    umbral_max = 40.0  # Salinidad máxima
+                    umbral_critico_min = 32.0  # Salinidad crítica mínima
+                    umbral_critico_max = 42.0  # Salinidad crítica máxima
+                elif var in ['uo', 'vo']:  # Corrientes
+                    umbral_min = p05 if p05 is not None else -0.8
+                    umbral_max = p95 if p95 is not None else 0.8
+                    umbral_critico_min = p05 * 1.5 if p05 is not None else -1.2  # 150% del percentil 5 (más negativo)
+                    umbral_critico_max = p95 * 1.5 if p95 is not None else 1.2  # 150% del percentil 95 (más positivo)
                 else:  # Para otras variables
-                    umbral_min = p05
-                    umbral_max = p95
-                    umbral_critico_min = p05 * 0.9  # 90% del percentil 5
-                    umbral_critico_max = p95 * 1.1  # 110% del percentil 95
+                    umbral_min = p05 if p05 is not None else 0
+                    umbral_max = p95 if p95 is not None else 1
+                    umbral_critico_min = p05 * 0.9 if p05 is not None else 0  # 90% del percentil 5
+                    umbral_critico_max = p95 * 1.1 if p95 is not None else 1  # 110% del percentil 95
                 
                 # Guardar en la tabla de configuraciones
                 cursor.execute("""
