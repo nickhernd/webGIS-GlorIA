@@ -1,0 +1,670 @@
+=== EXTRAYENDO INFORMACIÓN DETALLADA DE LA BASE DE DATOS GLORIA ===
+Fecha de generación: Tue Apr 15 07:05:13 CEST 2025
+
+ESTRUCTURA DE LA BASE DE DATOS:
+-----------------------------------
+                                              Table "gloria.alertas"
+       Column       |           Type           | Collation | Nullable |                  Default                   
+--------------------+--------------------------+-----------+----------+--------------------------------------------
+ id                 | integer                  |           | not null | nextval('gloria.alertas_id_seq'::regclass)
+ piscifactoria_id   | integer                  |           |          | 
+ tipo               | character varying(50)    |           | not null | 
+ nivel              | character varying(20)    |           | not null | 
+ descripcion        | text                     |           | not null | 
+ fecha_inicio       | timestamp with time zone |           | not null | 
+ fecha_fin          | timestamp with time zone |           |          | 
+ fecha_registro     | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ variable_nombre    | character varying(50)    |           |          | 
+ valor_umbral       | double precision         |           |          | 
+ valor_actual       | double precision         |           |          | 
+ activa             | boolean                  |           |          | true
+ accion_recomendada | text                     |           |          | 
+ geometria          | geometry(Point,4326)     |           |          | 
+ metadatos          | jsonb                    |           |          | 
+Indexes:
+    "alertas_pkey" PRIMARY KEY, btree (id)
+    "idx_alertas_activa" btree (activa)
+    "idx_alertas_fecha_inicio" btree (fecha_inicio)
+    "idx_alertas_geometria" gist (geometria)
+    "idx_alertas_nivel" btree (nivel)
+    "idx_alertas_piscifactoria_id" btree (piscifactoria_id)
+    "idx_alertas_tipo" btree (tipo)
+Foreign-key constraints:
+    "alertas_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+
+                    Materialized view "gloria.alertas_activas"
+        Column        |           Type           | Collation | Nullable | Default 
+----------------------+--------------------------+-----------+----------+---------
+ id                   | integer                  |           |          | 
+ piscifactoria_id     | integer                  |           |          | 
+ piscifactoria_nombre | character varying(100)   |           |          | 
+ tipo                 | character varying(50)    |           |          | 
+ nivel                | character varying(20)    |           |          | 
+ descripcion          | text                     |           |          | 
+ fecha_inicio         | timestamp with time zone |           |          | 
+ valor_actual         | double precision         |           |          | 
+ valor_umbral         | double precision         |           |          | 
+ geometria            | geometry(Point,4326)     |           |          | 
+Indexes:
+    "idx_alertas_activas_id" UNIQUE, btree (id)
+
+                   Sequence "gloria.alertas_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.alertas.id
+
+     Index "gloria.alertas_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.alertas"
+
+      Index "gloria.config_categoria_clave_unico"
+  Column   |          Type          | Key? | Definition 
+-----------+------------------------+------+------------
+ categoria | character varying(50)  | yes  | categoria
+ clave     | character varying(100) | yes  | clave
+unique, btree, for table "gloria.configuraciones"
+
+                                               Table "gloria.configuraciones"
+       Column        |           Type           | Collation | Nullable |                      Default                       
+---------------------+--------------------------+-----------+----------+----------------------------------------------------
+ id                  | integer                  |           | not null | nextval('gloria.configuraciones_id_seq'::regclass)
+ categoria           | character varying(50)    |           | not null | 
+ clave               | character varying(100)   |           | not null | 
+ valor               | text                     |           | not null | 
+ descripcion         | text                     |           |          | 
+ fecha_creacion      | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ fecha_actualizacion | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ usuario             | character varying(100)   |           |          | 
+Indexes:
+    "configuraciones_pkey" PRIMARY KEY, btree (id)
+    "config_categoria_clave_unico" UNIQUE CONSTRAINT, btree (categoria, clave)
+
+               Sequence "gloria.configuraciones_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.configuraciones.id
+
+ Index "gloria.configuraciones_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.configuraciones"
+
+                                                  Table "gloria.datasets"
+           Column           |           Type           | Collation | Nullable |                   Default                   
+----------------------------+--------------------------+-----------+----------+---------------------------------------------
+ id                         | integer                  |           | not null | nextval('gloria.datasets_id_seq'::regclass)
+ nombre                     | character varying(100)   |           | not null | 
+ descripcion                | text                     |           |          | 
+ fuente                     | character varying(100)   |           | not null | 
+ dataset_id                 | character varying(100)   |           | not null | 
+ variables                  | text[]                   |           | not null | 
+ url_base                   | character varying(255)   |           |          | 
+ formato                    | character varying(50)    |           |          | 
+ frecuencia_actualizacion   | character varying(50)    |           |          | 
+ fecha_registro             | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ fecha_ultima_actualizacion | timestamp with time zone |           |          | 
+ activo                     | boolean                  |           |          | true
+ bbox_geom                  | geometry(Polygon,4326)   |           |          | 
+ metadatos                  | jsonb                    |           |          | 
+Indexes:
+    "datasets_pkey" PRIMARY KEY, btree (id)
+    "datasets_fuente_id_unico" UNIQUE CONSTRAINT, btree (fuente, dataset_id)
+    "datasets_nombre_unico" UNIQUE CONSTRAINT, btree (nombre)
+Referenced by:
+    TABLE "gloria.importaciones" CONSTRAINT "importaciones_dataset_id_fkey" FOREIGN KEY (dataset_id) REFERENCES gloria.datasets(id)
+    TABLE "gloria.variables_ambientales" CONSTRAINT "variables_ambientales_dataset_id_fkey" FOREIGN KEY (dataset_id) REFERENCES gloria.datasets(id)
+
+         Index "gloria.datasets_fuente_id_unico"
+   Column   |          Type          | Key? | Definition 
+------------+------------------------+------+------------
+ fuente     | character varying(100) | yes  | fuente
+ dataset_id | character varying(100) | yes  | dataset_id
+unique, btree, for table "gloria.datasets"
+
+                  Sequence "gloria.datasets_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.datasets.id
+
+        Index "gloria.datasets_nombre_unico"
+ Column |          Type          | Key? | Definition 
+--------+------------------------+------+------------
+ nombre | character varying(100) | yes  | nombre
+unique, btree, for table "gloria.datasets"
+
+     Index "gloria.datasets_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.datasets"
+
+                Materialized view "gloria.estadisticas_diarias"
+       Column       |           Type           | Collation | Nullable | Default 
+--------------------+--------------------------+-----------+----------+---------
+ fecha              | timestamp with time zone |           |          | 
+ piscifactoria_id   | integer                  |           |          | 
+ variable_nombre    | character varying(50)    |           |          | 
+ valor_promedio     | double precision         |           |          | 
+ valor_minimo       | double precision         |           |          | 
+ valor_maximo       | double precision         |           |          | 
+ valor_desviacion   | double precision         |           |          | 
+ cantidad_registros | bigint                   |           |          | 
+Indexes:
+    "idx_estadisticas_diarias_fecha_piscifactoria_variable" UNIQUE, btree (fecha, piscifactoria_id, variable_nombre)
+
+  Index "gloria.idx_alertas_activa"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ activa | boolean | yes  | activa
+btree, for table "gloria.alertas"
+
+Index "gloria.idx_alertas_activas_id"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+unique, btree, for table "gloria.alertas_activas"
+
+            Index "gloria.idx_alertas_fecha_inicio"
+    Column    |           Type           | Key? |  Definition  
+--------------+--------------------------+------+--------------
+ fecha_inicio | timestamp with time zone | yes  | fecha_inicio
+btree, for table "gloria.alertas"
+
+  Index "gloria.idx_alertas_geometria"
+  Column   |  Type  | Key? | Definition 
+-----------+--------+------+------------
+ geometria | box2df | yes  | geometria
+gist, for table "gloria.alertas"
+
+          Index "gloria.idx_alertas_nivel"
+ Column |         Type          | Key? | Definition 
+--------+-----------------------+------+------------
+ nivel  | character varying(20) | yes  | nivel
+btree, for table "gloria.alertas"
+
+     Index "gloria.idx_alertas_piscifactoria_id"
+      Column      |  Type   | Key? |    Definition    
+------------------+---------+------+------------------
+ piscifactoria_id | integer | yes  | piscifactoria_id
+btree, for table "gloria.alertas"
+
+          Index "gloria.idx_alertas_tipo"
+ Column |         Type          | Key? | Definition 
+--------+-----------------------+------+------------
+ tipo   | character varying(50) | yes  | tipo
+btree, for table "gloria.alertas"
+
+ Index "gloria.idx_estadisticas_diarias_fecha_piscifactoria_variable"
+      Column      |           Type           | Key? |    Definition    
+------------------+--------------------------+------+------------------
+ fecha            | timestamp with time zone | yes  | fecha
+ piscifactoria_id | integer                  | yes  | piscifactoria_id
+ variable_nombre  | character varying(50)    | yes  | variable_nombre
+unique, btree, for table "gloria.estadisticas_diarias"
+
+Index "gloria.idx_piscifactorias_geom_area"
+  Column   |  Type  | Key? | Definition 
+-----------+--------+------+------------
+ geom_area | box2df | yes  | geom_area
+gist, for table "gloria.piscifactorias"
+
+Index "gloria.idx_piscifactorias_geometria"
+  Column   |  Type  | Key? | Definition 
+-----------+--------+------+------------
+ geometria | box2df | yes  | geometria
+gist, for table "gloria.piscifactorias"
+
+Index "gloria.idx_prediccion_escapes_fecha"
+ Column | Type | Key? | Definition 
+--------+------+------+------------
+ fecha  | date | yes  | fecha
+btree, for table "gloria.prediccion_escapes"
+
+     Index "gloria.idx_prediccion_escapes_nivel_riesgo"
+    Column    |         Type          | Key? |  Definition  
+--------------+-----------------------+------+--------------
+ nivel_riesgo | character varying(20) | yes  | nivel_riesgo
+btree, for table "gloria.prediccion_escapes"
+
+Index "gloria.idx_prediccion_escapes_piscifactoria_id"
+      Column      |  Type   | Key? |    Definition    
+------------------+---------+------+------------------
+ piscifactoria_id | integer | yes  | piscifactoria_id
+btree, for table "gloria.prediccion_escapes"
+
+     Index "gloria.idx_ultimas_lecturas_piscifactoria_variable"
+      Column      |         Type          | Key? |    Definition    
+------------------+-----------------------+------+------------------
+ piscifactoria_id | integer               | yes  | piscifactoria_id
+ variable_nombre  | character varying(50) | yes  | variable_nombre
+unique, btree, for table "gloria.ultimas_lecturas"
+
+Index "gloria.idx_variables_ambientales_dataset_id"
+   Column   |  Type   | Key? | Definition 
+------------+---------+------+------------
+ dataset_id | integer | yes  | dataset_id
+btree, for table "gloria.variables_ambientales"
+
+Index "gloria.idx_variables_ambientales_geometria"
+  Column   |  Type  | Key? | Definition 
+-----------+--------+------+------------
+ geometria | box2df | yes  | geometria
+gist, for table "gloria.variables_ambientales"
+
+Index "gloria.idx_variables_ambientales_piscifactoria_id"
+      Column      |  Type   | Key? |    Definition    
+------------------+---------+------+------------------
+ piscifactoria_id | integer | yes  | piscifactoria_id
+btree, for table "gloria.variables_ambientales"
+
+     Index "gloria.idx_variables_ambientales_variable_nombre"
+     Column      |         Type          | Key? |   Definition    
+-----------------+-----------------------+------+-----------------
+ variable_nombre | character varying(50) | yes  | variable_nombre
+btree, for table "gloria.variables_ambientales"
+
+          Index "gloria.idx_variables_piscifactoria_variable"
+      Column      |           Type           | Key? |    Definition    
+------------------+--------------------------+------+------------------
+ piscifactoria_id | integer                  | yes  | piscifactoria_id
+ variable_nombre  | character varying(50)    | yes  | variable_nombre
+ fecha_tiempo     | timestamp with time zone | yes  | fecha_tiempo
+btree, for table "gloria.variables_ambientales"
+
+                Index "gloria.idx_variables_so"
+    Column    |           Type           | Key? |  Definition  
+--------------+--------------------------+------+--------------
+ fecha_tiempo | timestamp with time zone | yes  | fecha_tiempo
+btree, for table "gloria.variables_ambientales", predicate (variable_nombre::text = ANY (ARRAY['so'::character varying, 'salinidad'::character varying]::text[]))
+
+           Index "gloria.idx_variables_temperatura"
+    Column    |           Type           | Key? |  Definition  
+--------------+--------------------------+------+--------------
+ fecha_tiempo | timestamp with time zone | yes  | fecha_tiempo
+btree, for table "gloria.variables_ambientales", predicate (variable_nombre::text = ANY (ARRAY['temperatura'::character varying, 'temperature'::character varying, 'temp'::character varying, 'temperatura_agua'::character varying]::text[]))
+
+                Index "gloria.idx_variables_uo"
+    Column    |           Type           | Key? |  Definition  
+--------------+--------------------------+------+--------------
+ fecha_tiempo | timestamp with time zone | yes  | fecha_tiempo
+btree, for table "gloria.variables_ambientales", predicate (variable_nombre::text = 'uo'::text)
+
+                Index "gloria.idx_variables_vo"
+    Column    |           Type           | Key? |  Definition  
+--------------+--------------------------+------+--------------
+ fecha_tiempo | timestamp with time zone | yes  | fecha_tiempo
+btree, for table "gloria.variables_ambientales", predicate (variable_nombre::text = 'vo'::text)
+
+                                               Table "gloria.importaciones"
+        Column        |           Type           | Collation | Nullable |                     Default                      
+----------------------+--------------------------+-----------+----------+--------------------------------------------------
+ id                   | integer                  |           | not null | nextval('gloria.importaciones_id_seq'::regclass)
+ dataset_id           | integer                  |           | not null | 
+ fecha_inicio         | timestamp with time zone |           | not null | 
+ fecha_fin            | timestamp with time zone |           | not null | 
+ fecha_importacion    | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ cantidad_registros   | integer                  |           | not null | 
+ estado               | character varying(50)    |           | not null | 
+ errores              | text                     |           |          | 
+ mensaje              | text                     |           |          | 
+ usuario              | character varying(100)   |           |          | 
+ tiempo_procesamiento | integer                  |           |          | 
+ metadatos            | jsonb                    |           |          | 
+Indexes:
+    "importaciones_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "importaciones_dataset_id_fkey" FOREIGN KEY (dataset_id) REFERENCES gloria.datasets(id)
+
+                Sequence "gloria.importaciones_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.importaciones.id
+
+  Index "gloria.importaciones_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.importaciones"
+
+                                               Table "gloria.piscifactorias"
+        Column        |           Type           | Collation | Nullable |                      Default                      
+----------------------+--------------------------+-----------+----------+---------------------------------------------------
+ id                   | integer                  |           | not null | nextval('gloria.piscifactorias_id_seq'::regclass)
+ nombre               | character varying(100)   |           | not null | 
+ descripcion          | text                     |           |          | 
+ tipo                 | character varying(50)    |           |          | 
+ especies             | text[]                   |           |          | 
+ ciudad               | character varying(100)   |           |          | 
+ provincia            | character varying(50)    |           |          | 
+ comunidad_autonoma   | character varying(50)    |           |          | 
+ fecha_registro       | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ fecha_actualizacion  | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ capacidad_produccion | double precision         |           |          | 
+ area                 | double precision         |           |          | 
+ profundidad_media    | double precision         |           |          | 
+ activo               | boolean                  |           |          | true
+ geometria            | geometry(Point,4326)     |           | not null | 
+ geom_area            | geometry(Polygon,4326)   |           |          | 
+Indexes:
+    "piscifactorias_pkey" PRIMARY KEY, btree (id)
+    "idx_piscifactorias_geom_area" gist (geom_area)
+    "idx_piscifactorias_geometria" gist (geometria)
+    "piscifactorias_nombre_unico" UNIQUE CONSTRAINT, btree (nombre)
+Referenced by:
+    TABLE "gloria.alertas" CONSTRAINT "alertas_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+    TABLE "gloria.prediccion_escapes" CONSTRAINT "prediccion_escapes_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+    TABLE "gloria.variables_ambientales" CONSTRAINT "variables_ambientales_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+Triggers:
+    update_piscifactorias_fecha_actualizacion BEFORE UPDATE ON gloria.piscifactorias FOR EACH ROW EXECUTE FUNCTION gloria.update_fecha_actualizacion()
+
+               Sequence "gloria.piscifactorias_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.piscifactorias.id
+
+     Index "gloria.piscifactorias_nombre_unico"
+ Column |          Type          | Key? | Definition 
+--------+------------------------+------+------------
+ nombre | character varying(100) | yes  | nombre
+unique, btree, for table "gloria.piscifactorias"
+
+  Index "gloria.piscifactorias_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.piscifactorias"
+
+                                                 Table "gloria.prediccion_escapes"
+          Column          |           Type           | Collation | Nullable |                        Default                        
+--------------------------+--------------------------+-----------+----------+-------------------------------------------------------
+ id                       | integer                  |           | not null | nextval('gloria.prediccion_escapes_id_seq'::regclass)
+ piscifactoria_id         | integer                  |           | not null | 
+ fecha                    | date                     |           | not null | 
+ altura_olas              | double precision         |           |          | 
+ altura_olas_dia_anterior | double precision         |           |          | 
+ velocidad_corriente      | double precision         |           |          | 
+ indice_riesgo            | double precision         |           | not null | 
+ nivel_riesgo             | character varying(20)    |           | not null | 
+ prediccion_probabilidad  | double precision         |           | not null | 
+ fecha_prediccion         | timestamp with time zone |           |          | CURRENT_TIMESTAMP
+ datos_adicionales        | jsonb                    |           |          | 
+Indexes:
+    "prediccion_escapes_pkey" PRIMARY KEY, btree (id)
+    "idx_prediccion_escapes_fecha" btree (fecha)
+    "idx_prediccion_escapes_nivel_riesgo" btree (nivel_riesgo)
+    "idx_prediccion_escapes_piscifactoria_id" btree (piscifactoria_id)
+    "prediccion_escapes_piscifactoria_fecha_unica" UNIQUE CONSTRAINT, btree (piscifactoria_id, fecha)
+Foreign-key constraints:
+    "prediccion_escapes_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+
+             Sequence "gloria.prediccion_escapes_id_seq"
+  Type   | Start | Minimum |  Maximum   | Increment | Cycles? | Cache 
+---------+-------+---------+------------+-----------+---------+-------
+ integer |     1 |       1 | 2147483647 |         1 | no      |     1
+Owned by: gloria.prediccion_escapes.id
+
+Index "gloria.prediccion_escapes_piscifactoria_fecha_unica"
+      Column      |  Type   | Key? |    Definition    
+------------------+---------+------+------------------
+ piscifactoria_id | integer | yes  | piscifactoria_id
+ fecha            | date    | yes  | fecha
+unique, btree, for table "gloria.prediccion_escapes"
+
+Index "gloria.prediccion_escapes_pkey"
+ Column |  Type   | Key? | Definition 
+--------+---------+------+------------
+ id     | integer | yes  | id
+primary key, btree, for table "gloria.prediccion_escapes"
+
+                   Materialized view "gloria.ultimas_lecturas"
+        Column        |           Type           | Collation | Nullable | Default 
+----------------------+--------------------------+-----------+----------+---------
+ id                   | bigint                   |           |          | 
+ piscifactoria_id     | integer                  |           |          | 
+ piscifactoria_nombre | character varying(100)   |           |          | 
+ variable_nombre      | character varying(50)    |           |          | 
+ fecha_tiempo         | timestamp with time zone |           |          | 
+ valor                | double precision         |           |          | 
+ geometria            | geometry(Point,4326)     |           |          | 
+Indexes:
+    "idx_ultimas_lecturas_piscifactoria_variable" UNIQUE, btree (piscifactoria_id, variable_nombre)
+
+                                             Table "gloria.variables_ambientales"
+      Column      |           Type           | Collation | Nullable |                         Default                          
+------------------+--------------------------+-----------+----------+----------------------------------------------------------
+ id               | bigint                   |           | not null | nextval('gloria.variables_ambientales_id_seq'::regclass)
+ dataset_id       | integer                  |           | not null | 
+ variable_nombre  | character varying(50)    |           | not null | 
+ fecha_tiempo     | timestamp with time zone |           | not null | 
+ valor            | double precision         |           | not null | 
+ piscifactoria_id | integer                  |           |          | 
+ geometria        | geometry(Point,4326)     |           | not null | 
+ profundidad      | double precision         |           |          | 
+ calidad          | integer                  |           |          | 
+ observaciones    | text                     |           |          | 
+Indexes:
+    "variables_ambientales_pkey" PRIMARY KEY, btree (id)
+    "idx_variables_ambientales_dataset_id" btree (dataset_id)
+    "idx_variables_ambientales_geometria" gist (geometria)
+    "idx_variables_ambientales_piscifactoria_id" btree (piscifactoria_id)
+    "idx_variables_ambientales_variable_nombre" btree (variable_nombre)
+    "idx_variables_piscifactoria_variable" btree (piscifactoria_id, variable_nombre, fecha_tiempo)
+    "idx_variables_so" btree (fecha_tiempo) WHERE variable_nombre::text = ANY (ARRAY['so'::character varying, 'salinidad'::character varying]::text[])
+    "idx_variables_temperatura" btree (fecha_tiempo) WHERE variable_nombre::text = ANY (ARRAY['temperatura'::character varying, 'temperature'::character varying, 'temp'::character varying, 'temperatura_agua'::character varying]::text[])
+    "idx_variables_uo" btree (fecha_tiempo) WHERE variable_nombre::text = 'uo'::text
+    "idx_variables_vo" btree (fecha_tiempo) WHERE variable_nombre::text = 'vo'::text
+    "variables_espacio_tiempo" UNIQUE CONSTRAINT, btree (variable_nombre, fecha_tiempo, geometria)
+Foreign-key constraints:
+    "variables_ambientales_dataset_id_fkey" FOREIGN KEY (dataset_id) REFERENCES gloria.datasets(id)
+    "variables_ambientales_piscifactoria_id_fkey" FOREIGN KEY (piscifactoria_id) REFERENCES gloria.piscifactorias(id)
+Triggers:
+    trigger_check_alertas AFTER INSERT ON gloria.variables_ambientales FOR EACH ROW EXECUTE FUNCTION gloria.check_alertas_trigger()
+
+                Sequence "gloria.variables_ambientales_id_seq"
+  Type  | Start | Minimum |       Maximum       | Increment | Cycles? | Cache 
+--------+-------+---------+---------------------+-----------+---------+-------
+ bigint |     1 |       1 | 9223372036854775807 |         1 | no      |     1
+Owned by: gloria.variables_ambientales.id
+
+Index "gloria.variables_ambientales_pkey"
+ Column |  Type  | Key? | Definition 
+--------+--------+------+------------
+ id     | bigint | yes  | id
+primary key, btree, for table "gloria.variables_ambientales"
+
+               Index "gloria.variables_espacio_tiempo"
+     Column      |           Type           | Key? |   Definition    
+-----------------+--------------------------+------+-----------------
+ variable_nombre | character varying(50)    | yes  | variable_nombre
+ fecha_tiempo    | timestamp with time zone | yes  | fecha_tiempo
+ geometria       | geometry(Point,4326)     | yes  | geometria
+unique, btree, for table "gloria.variables_ambientales"
+
+
+PISCIFACTORÍAS REGISTRADAS:
+-----------------------------------
+ id |                  nombre                   |    tipo     |          ciudad          | provincia | longitud | latitud 
+----+-------------------------------------------+-------------+--------------------------+-----------+----------+---------
+  6 | Acuimed                                   | marina      | Sagunto                  | Valencia  |  -0.2667 | 39.6833
+  7 | Cultivos Marinos Costa Blanca             | marina      | Sagunto                  | Valencia  |    -0.25 | 39.6667
+  9 | Piscifactoría Polinyà del Xúquer          | continental | Polinyà del Xúquer       | Valencia  |     -0.4 |    39.2
+ 14 | Piscifactoría de Albufera                 | continental | Valencia                 | Valencia  |     -0.3 |    39.3
+ 25 | Piscifactoría de Cartagena                | marina      | Cartagena                | Murcia    |  -0.9833 |    37.6
+ 15 | Piscifactoría de Cullera                  | marina      | Cullera                  | Valencia  |  -0.2667 |    39.2
+ 13 | Piscifactoría de Dénia                    | marina      | Dénia                    | Alicante  |     -0.1 |   38.85
+ 16 | Piscifactoría de Gandia                   | marina      | Gandia                   | Valencia  |     -0.2 | 38.9667
+ 10 | Piscifactoría de Guardamar del Segura     | marina      | Guardamar del Segura     | Alicante  |     -0.7 |    38.1
+ 24 | Piscifactoría de Mazarrón                 | marina      | Mazarrón                 | Murcia    |  -1.6167 | 37.5667
+ 17 | Piscifactoría de Oliva                    | marina      | Oliva                    | Valencia  |     -0.1 | 38.9333
+ 18 | Piscifactoría de Piles                    | marina      | Piles                    | Valencia  |     -0.1 |    38.9
+ 23 | Piscifactoría de San Pedro del Pinatar    | marina      | San Pedro del Pinatar    | Murcia    |     -0.8 |    37.8
+ 11 | Piscifactoría de Santa Pola               | marina      | Santa Pola               | Alicante  |     -0.5 |    38.2
+ 20 | Piscifactoría de Sueca                    | continental | Sueca                    | Valencia  |  -0.2833 |    39.2
+ 19 | Piscifactoría de Tavernes de la Valldigna | marina      | Tavernes de la Valldigna | Valencia  |     -0.2 |   38.95
+ 12 | Piscifactoría de Xàbia                    | marina      | Xàbia                    | Alicante  |     -0.2 |    38.8
+ 22 | Piscifactoría de Águilas                  | marina      | Águilas                  | Murcia    |     -1.6 | 37.4167
+ 21 | Piscifactoría del Cenajo                  | continental | Moratalla                | Murcia    |  -1.8333 |   38.08
+  8 | Piscifactoría del Palmar                  | continental | Valencia                 | Valencia  |     -0.4 | 39.4667
+(20 rows)
+
+
+VARIABLES AMBIENTALES (RESUMEN):
+-----------------------------------
+variable_nombre | num_registros |      fecha_inicio      |       fecha_fin        |    valor_promedio    
+ -----------------+---------------+------------------------+------------------------+----------------------
+ corriente_u     |         99365 | 2022-11-01 00:00:00+01 | 2025-04-23 23:00:00+02 | 0.002807782378443281
+ corriente_v     |         99365 | 2022-11-01 00:00:00+01 | 2025-04-23 23:00:00+02 | 0.029963609678282783
+ hfds            |        319200 | 1987-01-01 00:00:00+01 | 2023-05-31 00:00:00+02 |   18.244585545997225
+ hfls            |        319200 | 1987-01-01 00:00:00+01 | 2023-05-31 00:00:00+02 |   -73.65855594783102
+ hfss            |        319200 | 1987-01-01 00:00:00+01 | 2023-05-31 00:00:00+02 |   -7.080469521461477
+ temperatura     |         10354 | 2025-01-01 00:00:00+01 | 2025-04-11 00:00:00+02 |   15.765118235392254
+ zos             |        319200 | 1987-01-01 00:00:00+01 | 2023-05-31 00:00:00+02 | -0.45928607369216395
+(7 rows)
+
+
+DATASETS REGISTRADOS:
+-----------------------------------
+ id |                                  nombre                                  |      fuente       |                            dataset_id                            |                            variables                            |  fecha_ultima_actualizacion   
+----+--------------------------------------------------------------------------+-------------------+------------------------------------------------------------------+-----------------------------------------------------------------+-------------------------------
+  1 | Corrientes Marinas Mediterráneo                                          | Copernicus        | cmems_mod_med_phy-cur_anfc_4.2km_P1D-m                           | {uo,vo}                                                         | 
+  2 | CO2 Mediterráneo                                                         | Copernicus        | cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m                           | {fgco2,spco2}                                                   | 
+  3 | Nutrientes Mediterráneo                                                  | Copernicus        | cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m                           | {nh4,no3,po4,si}                                                | 
+  4 | Biología Mediterráneo                                                    | Copernicus        | cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m                           | {nppv,o2}                                                       | 
+  5 | Clorofila y Turbidez Mediterráneo                                        | Copernicus        | cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m          | {CHL,SPM,TUR}                                                   | 
+  6 | Datos Meteorológicos                                                     | OpenWeather       | weather_data                                                     | {temperatura,humedad,presion,velocidad_viento,direccion_viento} | 
+  7 | Dataset cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250305                  | Copernicus Marine | cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250305                  | {}                                                              | 2025-03-05 21:40:21.008877+01
+  8 | Dataset cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250305 | Copernicus Marine | cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250305 | {}                                                              | 2025-03-05 23:27:17.189517+01
+  9 | Dataset cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250305              | Copernicus Marine | cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250305              | {}                                                              | 2025-03-05 23:59:28.803678+01
+ 10 | Dataset med-cmcc-sal-rean-d_20250306                                     | Copernicus Marine | med-cmcc-sal-rean-d_20250306                                     | {}                                                              | 2025-03-08 17:03:55.960722+01
+ 11 | Dataset cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-06 23:05:14.903687+01
+ 12 | Dataset med-cmcc-ssh-rean-d_20250306                                     | Copernicus Marine | med-cmcc-ssh-rean-d_20250306                                     | {}                                                              | 2025-03-08 00:18:08.451527+01
+ 13 | Dataset cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_bgc-bio_anfc_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-08 04:49:27.627158+01
+ 14 | Dataset cmems_mod_med_phy-wflux_my_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_phy-wflux_my_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-08 05:22:27.429036+01
+ 15 | Dataset cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_bgc-pft_anfc_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-08 15:55:12.275699+01
+ 16 | Dataset cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_bgc-co2_anfc_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-09 03:27:59.008853+01
+ 17 | Dataset cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250306 | Copernicus Marine | cmems_obs_oc_med_bgc_tur-spm-chl_nrt_l3-hr-mosaic_P1D-m_20250306 | {}                                                              | 2025-03-09 04:00:56.263252+01
+ 18 | Dataset cmems_mod_med_bgc-car_anfc_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_bgc-car_anfc_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-09 04:00:56.284831+01
+ 19 | Dataset cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250306              | Copernicus Marine | cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250306              | {}                                                              | 2025-03-09 04:52:03.502835+01
+ 20 | Dataset cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250306                  | Copernicus Marine | cmems_mod_med_bgc-nut_anfc_4.2km_P1D-m_20250306                  | {}                                                              | 2025-03-09 20:17:57.345649+01
+ 21 | Datos simulados para GlorIA                                              | Simulación        | gloria_simulated_data                                            | {temperatura,uo,vo,so}                                          | 
+ 22 | Dataset med-cmcc-sal-rean-d_20250407                                     | Copernicus Marine | med-cmcc-sal-rean-d_20250407                                     | {}                                                              | 2025-04-07 20:26:19.766678+02
+ 23 | Dataset cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250407                  | Copernicus Marine | cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250407                  | {}                                                              | 2025-04-08 07:56:22.113867+02
+ 24 | Dataset med-cmcc-sal-rean-d_20250411                                     | Copernicus Marine | med-cmcc-sal-rean-d_20250411                                     | {}                                                              | 2025-04-11 12:06:37.123884+02
+ 25 | Dataset med-cmcc-ssh-rean-d_20250411                                     | Copernicus Marine | med-cmcc-ssh-rean-d_20250411                                     | {}                                                              | 2025-04-11 12:15:11.224632+02
+ 26 | Dataset cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250411                  | Copernicus Marine | cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250411                  | {}                                                              | 2025-04-11 12:10:00.381116+02
+ 27 | Dataset cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250411              | Copernicus Marine | cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250411              | {}                                                              | 2025-04-11 12:13:25.270707+02
+ 28 | Temperatura Mediterráneo                                                 | Copernicus Marine | cmems_mod_med_phy-tem_anfc_4.2km_P1D-m                           | {temperatura}                                                   | 2025-04-11 13:39:27.160995+02
+ 29 | Salinidad Mediterráneo                                                   | Copernicus Marine | cmems_mod_med_phy-sal_anfc_4.2km_P1D-m                           | {salinidad}                                                     | 2025-04-13 11:32:34.516088+02
+ 30 | Dataset cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250414                  | Copernicus Marine | cmems_mod_med_phy-hflux_my_4.2km_P1D-m_20250414                  | {}                                                              | 2025-04-14 21:16:34.326465+02
+ 31 | Dataset cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250414              | Copernicus Marine | cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m_20250414              | {}                                                              | 2025-04-14 21:19:50.046428+02
+ 32 | Dataset med-cmcc-ssh-rean-d_20250414                                     | Copernicus Marine | med-cmcc-ssh-rean-d_20250414                                     | {}                                                              | 2025-04-14 21:21:33.873883+02
+ 33 | Dataset med-cmcc-sal-rean-d_20250414                                     | Copernicus Marine | med-cmcc-sal-rean-d_20250414                                     | {}                                                              | 2025-04-14 21:22:24.897641+02
+(33 rows)
+
+
+ALERTAS ACTIVAS:
+-----------------------------------
+   id   | variable_nombre |    nivel    |                      descripcion                       |      fecha_inicio      |               piscifactoria               
+--------+-----------------+-------------+--------------------------------------------------------+------------------------+-------------------------------------------
+ 259477 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Acuimed
+ 259476 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Cultivos Marinos Costa Blanca
+ 259475 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría del Palmar
+ 259470 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Guardamar del Segura
+ 259471 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Santa Pola
+ 259479 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Xàbia
+ 259480 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Dénia
+ 259473 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Cullera
+ 259481 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Gandia
+ 259472 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Oliva
+ 259482 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Piles
+ 259483 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Tavernes de la Valldigna
+ 259468 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Águilas
+ 259485 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de San Pedro del Pinatar
+ 259486 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Mazarrón
+ 259469 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Cartagena
+ 259478 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría Polinyà del Xúquer
+ 259474 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Albufera
+ 259484 | temperatura     | advertencia | Valor de temperatura por debajo del umbral mínimo (18) | 2025-03-12 00:00:00+01 | Piscifactoría de Sueca
+(19 rows)
+
+
+UMBRALES CONFIGURADOS:
+-----------------------------------
+          clave          | valor |                     descripcion                     
+-------------------------+-------+-----------------------------------------------------
+ CHL_max                 | 10    | Concentración máxima de clorofila en mg/m³
+ TUR_max                 | 15    | Turbidez máxima en unidades NTU
+ o2_critico_max          | 1     | Umbral crítico máximo para o2
+ o2_critico_min          | 0     | Umbral crítico mínimo para o2
+ o2_max                  | 1     | Umbral máximo para o2
+ o2_min                  | 0     | Nivel mínimo de oxígeno disuelto en mg/L
+ so_critico_max          | 42.0  | Umbral crítico máximo para so
+ so_critico_min          | 32.0  | Umbral crítico mínimo para so
+ so_max                  | 40.0  | Salinidad máxima en PSU
+ so_min                  | 34.0  | Salinidad mínima en PSU
+ temperatura_critico_max | 30.0  | Umbral crítico máximo para temperatura
+ temperatura_critico_min | 16.0  | Umbral crítico mínimo para temperatura
+ temperatura_max         | 28.0  | Temperatura máxima del agua en °C
+ temperatura_min         | 18.0  | Temperatura mínima del agua en °C
+ uo_critico_max          | 1.2   | Umbral crítico máximo para uo
+ uo_critico_min          | -1.2  | Umbral crítico mínimo para uo
+ uo_max                  | 0.8   | Velocidad máxima de corriente (componente U) en m/s
+ uo_min                  | -0.8  | Umbral mínimo para uo
+ vo_critico_max          | 1.2   | Umbral crítico máximo para vo
+ vo_critico_min          | -1.2  | Umbral crítico mínimo para vo
+ vo_max                  | 0.8   | Velocidad máxima de corriente (componente V) en m/s
+ vo_min                  | -0.8  | Umbral mínimo para vo
+(22 rows)
+
+
+MÉTRICAS DE RENDIMIENTO - TOTAL REGISTROS AMBIENTALES:
+-----------------------------------
+ total_registros_ambientales 
+-----------------------------
+                     1485884
+(1 row)
+
+
+MÉTRICAS DE RENDIMIENTO - TOTAL ALERTAS:
+-----------------------------------
+ total_alertas 
+---------------
+            19
+(1 row)
+
+
+MÉTRICAS DE RENDIMIENTO - ALERTAS ACTIVAS:
+-----------------------------------
+ total_alertas_activas 
+-----------------------
+                    19
+(1 row)
+
+
+VALORES MÁS RECIENTES POR VARIABLE:
+-----------------------------------
+ variable_nombre |      fecha_tiempo      |        valor         
+-----------------+------------------------+----------------------
+ corriente_u     | 2025-04-23 23:00:00+02 | 0.050320252776145935
+ corriente_v     | 2025-04-23 23:00:00+02 |  0.03372979164123535
+ hfds            | 2023-05-31 00:00:00+02 |   214.84754943847656
+ hfls            | 2023-05-31 00:00:00+02 |   -26.61566925048828
+ hfss            | 2023-05-31 00:00:00+02 |  -2.1853086948394775
+ temperatura     | 2025-04-11 00:00:00+02 |   16.246051788330078
+ zos             | 2023-05-31 00:00:00+02 |  -0.3596896529197693
+(7 rows)
+
+
+IMPORTACIONES RECIENTES:
+-----------------------------------
+
+
+=== FIN DEL INFORME ===

@@ -42,51 +42,64 @@ export default {
         // Construir el objeto stats en el formato que espera el frontend
         const stats = {};
         
-        // Temperatura
-        if (indicadores.temperatura) {
-          stats.temperature = {
-            current: indicadores.temperatura.valor,
-            min: indicadores.temperatura.umbralMin,
-            max: indicadores.temperatura.umbralMax,
-            avg: (indicadores.temperatura.umbralMin + indicadores.temperatura.umbralMax) / 2,
-            trend: indicadores.temperatura.tendencia,
-            status: indicadores.temperatura.estado
-          };
+        // Temperatura - Buscar variaciones de nombres
+        const tempVars = ['temperatura', 'temperature', 'temp'];
+        for (const varName of tempVars) {
+          if (indicadores[varName]) {
+            stats.temperature = {
+              current: indicadores[varName].valor,
+              min: indicadores[varName].umbralMin,
+              max: indicadores[varName].umbralMax,
+              avg: (indicadores[varName].umbralMin + indicadores[varName].umbralMax) / 2,
+              trend: indicadores[varName].tendencia,
+              status: indicadores[varName].estado
+            };
+            break;
+          }
         }
         
-        // Oxígeno disuelto
-        if (indicadores.oxigenoDisuelto) {
-          stats.oxygen = {
-            current: indicadores.oxigenoDisuelto.valor,
-            min: indicadores.oxigenoDisuelto.umbralMin,
-            max: indicadores.oxigenoDisuelto.umbralMax,
-            avg: (indicadores.oxigenoDisuelto.umbralMin + indicadores.oxigenoDisuelto.umbralMax) / 2,
-            trend: indicadores.oxigenoDisuelto.tendencia,
-            status: indicadores.oxigenoDisuelto.estado
-          };
+        // Oxígeno disuelto - Buscar variaciones de nombres
+        const oxyVars = ['oxigenoDisuelto', 'oxygen', 'o2'];
+        for (const varName of oxyVars) {
+          if (indicadores[varName]) {
+            stats.oxygen = {
+              current: indicadores[varName].valor,
+              min: indicadores[varName].umbralMin,
+              max: indicadores[varName].umbralMax,
+              avg: (indicadores[varName].umbralMin + indicadores[varName].umbralMax) / 2,
+              trend: indicadores[varName].tendencia,
+              status: indicadores[varName].estado
+            };
+            break;
+          }
+        }
+        
+        // Corrientes - Buscar variaciones de nombres (uo, vo)
+        const currentVars = ['corrientes', 'currents', 'uo', 'vo'];
+        for (const varName of currentVars) {
+          if (indicadores[varName]) {
+            stats.currents = {
+              current: indicadores[varName].valor,
+              min: indicadores[varName].umbralMin,
+              max: indicadores[varName].umbralMax,
+              avg: (indicadores[varName].umbralMin + indicadores[varName].umbralMax) / 2,
+              trend: indicadores[varName].tendencia,
+              status: indicadores[varName].estado
+            };
+            break;
+          }
         }
         
         // Salinidad
-        if (indicadores.salinidad) {
+        if (indicadores.salinidad || indicadores.so) {
+          const salinityData = indicadores.salinidad || indicadores.so;
           stats.salinity = {
-            current: indicadores.salinidad.valor,
-            min: indicadores.salinidad.umbralMin,
-            max: indicadores.salinidad.umbralMax,
-            avg: (indicadores.salinidad.umbralMin + indicadores.salinidad.umbralMax) / 2,
-            trend: indicadores.salinidad.tendencia,
-            status: indicadores.salinidad.estado
-          };
-        }
-        
-        // Corrientes
-        if (indicadores.corrientes) {
-          stats.currents = {
-            current: indicadores.corrientes.valor,
-            min: indicadores.corrientes.umbralMin,
-            max: indicadores.corrientes.umbralMax,
-            avg: (indicadores.corrientes.umbralMin + indicadores.corrientes.umbralMax) / 2,
-            trend: indicadores.corrientes.tendencia,
-            status: indicadores.corrientes.estado
+            current: salinityData.valor,
+            min: salinityData.umbralMin,
+            max: salinityData.umbralMax,
+            avg: (salinityData.umbralMin + salinityData.umbralMax) / 2,
+            trend: salinityData.tendencia,
+            status: salinityData.estado
           };
         }
         
@@ -137,27 +150,27 @@ export default {
   async getDatosAmbientales(params = {}) {
     try {
       const { fecha, variable, piscifactoriaId } = params;
-      
+
       let url = `${API_URL}/datos-ambientales?fecha=${fecha}&variable=${variable}`;
       if (piscifactoriaId) {
         url += `&piscifactoriaId=${piscifactoriaId}`;
       }
-      
+
+      console.log("Llamando a API para datos ambientales:", url);
       const response = await axios.get(url);
-      
-      return {
-        data: response.data,
-        status: response.status
-      };
+
+      if (response.data && response.data.datos && response.data.datos.length > 0) {
+        console.log(`Recibidos ${response.data.datos.length} registros de ${variable}`);
+        return {
+          data: response.data,
+          status: response.status
+        };
+      }
     } catch (error) {
       console.error('Error al obtener datos ambientales:', error);
-      return {
-        data: { datos: [] },
-        status: error.response?.status || 500
-      };
     }
   },
-  
+
   /**
    * Obtener datos históricos para una variable
    * @param {string} variable - Nombre de la variable
@@ -167,27 +180,60 @@ export default {
     try {
       const { periodo, piscifactoriaId, fechaInicio, fechaFin } = params;
       
-      let url = `${API_URL}/historico/${variable}?periodo=${periodo || 'week'}`;
+      // Mapeo de variables para normalizar nombres
+      const variableMap = {
+        'temperatura': ['temperature', 'temp'],
+        'temperature': ['temperatura', 'temp'],
+        'temp': ['temperatura', 'temperature'],
+        'oxygen': ['o2', 'oxigeno'],
+        'o2': ['oxygen', 'oxigeno'],
+        'corrientes': ['uo', 'vo', 'current'],
+        'uo': ['vo', 'currents'],
+        'vo': ['uo', 'currents'],
+        'so': ['salinidad'],
+        'salinidad': ['so']
+      };
       
-      if (piscifactoriaId) {
-        url += `&piscifactoriaId=${piscifactoriaId}`;
+      // Variable original y alternativas
+      const allVariables = [variable];
+      if (variableMap[variable]) {
+        allVariables.push(...variableMap[variable]);
       }
       
-      if (fechaInicio) {
-        url += `&fechaInicio=${fechaInicio}`;
+      // Intentar con cada variable hasta encontrar datos
+      for (const v of allVariables) {
+        let url = `${API_URL}/historico/${v}?periodo=${periodo || 'week'}`;
+        
+        if (piscifactoriaId) {
+          url += `&piscifactoriaId=${piscifactoriaId}`;
+        }
+        
+        if (fechaInicio) {
+          url += `&fechaInicio=${fechaInicio}`;
+        }
+        
+        if (fechaFin) {
+          url += `&fechaFin=${fechaFin}`;
+        }
+        
+        console.log("Intentando API con variable:", v, url);
+        const response = await axios.get(url);
+        
+        // Si hay datos, devolverlos
+        if (response.data.datos && response.data.datos.length > 0) {
+          console.log(`Datos encontrados para variable ${v}:`, response.data.datos.length);
+          return {
+            data: response.data,
+            status: response.status
+          };
+        }
       }
       
-      if (fechaFin) {
-        url += `&fechaFin=${fechaFin}`;
-      }
-      
-      console.log("Llamando a API:", url);
-      const response = await axios.get(url);
-      console.log("Respuesta recibida:", response.data);
-      
+      // Si llegamos aquí, no se encontraron datos para ninguna variable
+      console.log(`No se encontraron datos para la variable ${variable} ni sus alternativas`);
       return {
-        data: response.data,
-        status: response.status
+        data: { datos: [] },
+        status: 200
       };
     } catch (error) {
       console.error(`Error al obtener datos históricos para ${variable}:`, error);
@@ -197,7 +243,7 @@ export default {
       };
     }
   },
-  
+
   /**
    * Obtener predicciones para una piscifactoría
    * @param {number} farmId - ID de la piscifactoría
@@ -216,6 +262,109 @@ export default {
         data: [],
         status: error.response?.status || 500
       };
+    }
+  },
+
+  /**
+   * Obtener datos de predicción de riesgo para todas las piscifactorías o una específica
+   * @param {Object} params - Parámetros opcionales (fecha, piscifactoriaId)
+   * @returns {Promise} - Promesa con los datos de predicción
+   */
+  async getPrediccionRiesgo(params = {}) {
+    try {
+      // Construir la URL base
+      let url = `${API_URL}/prediccion-riesgo`;
+      
+      // Añadir parámetros si existen
+      if (params.fecha) {
+        url += `?fecha=${params.fecha}`;
+      }
+      
+      if (params.piscifactoriaId) {
+        // Añadir & si ya hay un parámetro
+        url += url.includes('?') ? '&' : '?';
+        url += `piscifactoriaId=${params.piscifactoriaId}`;
+      }
+      
+      console.log("Obteniendo datos de predicción de riesgo:", url);
+      const response = await axios.get(url);
+      
+      return {
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener datos de predicción de riesgo:', error);
+    }
+  },
+
+  /**
+   * Obtener predicción de riesgo de escapes para una piscifactoría
+   * @param {number} farmId - ID de la piscifactoría (opcional)
+   * @returns {Promise} - Promesa con los datos de predicción de riesgo
+   */
+  async getRiesgoPrediccion(farmId = null) {
+    try {
+      let url = `${API_URL}/riesgo/prediccion`;
+      if (farmId) {
+        url = `${API_URL}/riesgo/prediccion/${farmId}`;
+      }
+      
+      console.log("Obteniendo predicción de riesgo desde:", url);
+      const response = await axios.get(url);
+      
+      return {
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener predicción de riesgo:', error);
+    }
+  },
+
+  /**
+   * Obtener datos de riesgo actual para todas las piscifactorías
+   * @returns {Promise} - Promesa con los datos actuales de riesgo
+   */
+  async getRiesgoActual() {
+    try {
+      const response = await axios.get(`${API_URL}/riesgo/actual`);
+      
+      return {
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener datos de riesgo actual:', error);
+    }
+  },
+
+  /**
+   * Obtener el histórico de riesgo para una piscifactoría específica
+   * @param {number} farmId - ID de la piscifactoría
+   * @param {Object} params - Parámetros de filtrado (desde, hasta)
+   * @returns {Promise} - Promesa con los datos históricos de riesgo
+   */
+  async getRiesgoHistorico(farmId, params = {}) {
+    try {
+      let url = `${API_URL}/riesgo/historico/${farmId}`;
+      
+      // Añadir parámetros de filtrado si existen
+      if (params.desde || params.hasta) {
+        url += '?';
+        if (params.desde) url += `desde=${params.desde}`;
+        if (params.desde && params.hasta) url += '&';
+        if (params.hasta) url += `hasta=${params.hasta}`;
+      }
+      
+      const response = await axios.get(url);
+      
+      return {
+        data: response.data,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener histórico de riesgo:', error);
     }
   },
 
@@ -242,5 +391,52 @@ export default {
         status: error.response?.status || 500
       };
     }
+  },
+
+  /**
+   * Obtener datos de riesgo de una piscifactoría
+   * @param {number} piscifactoriaId - ID de la piscifactoría
+   * @returns {Promise} - Promesa con los datos de riesgo
+   */
+  getRiskData(piscifactoriaId) {
+    return axios.get(`${API_URL}/riesgo/escapes/${piscifactoriaId}`);
+  },
+
+  /**
+   * Obtener predicciones de escape para una piscifactoría
+   * @param {number} piscifactoriaId - ID de la piscifactoría
+   * @returns {Promise} - Promesa con los datos de predicción de escape
+   */
+  getEscapePrediction(piscifactoriaId) {
+    return axios.get(`${API_URL}/predicciones/escapes/${piscifactoriaId}`);
+  },
+
+  /**
+   * Obtener historial de predicciones de escape para una piscifactoría
+   * @param {number} piscifactoriaId - ID de la piscifactoría
+   * @param {number} days - Número de días para el historial (por defecto 30)
+   * @returns {Promise} - Promesa con los datos del historial de predicciones
+   */
+  getEscapePredictionHistory(piscifactoriaId, days = 30) {
+    return axios.get(`${API_URL}/predicciones/escapes/${piscifactoriaId}/historial`, {
+      params: { dias: days }
+    });
+  },
+
+  /**
+   * Obtener resumen de riesgos de todas las piscifactorías
+   * @returns {Promise} - Promesa con el resumen de riesgos
+   */
+  getAllRiskSummary() {
+    return axios.get(`${API_URL}/riesgo/resumen`);
+  },
+
+  /**
+   * Obtener datos actuales de riesgo
+   * @returns {Promise} - Promesa con los datos actuales de riesgo
+   */
+  getCurrentRisk() {
+    return axios.get(`${API_URL}/riesgo/actual`);
   }
 };
+
