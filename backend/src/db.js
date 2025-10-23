@@ -1,66 +1,238 @@
+/**
+ * @fileoverview Módulo de conexión a la base de datos PostgreSQL
+ * @description Gestiona el pool de conexiones y proporciona funciones
+ * para verificar la conectividad y estructura de la base de datos.
+ *
+ * @module db
+ * @author GlorIA Team
+ * @version 2.0.0
+ *
+ * @requires pg
+ * @requires ./config/config
+ * @requires ./config/constants
+ */
+
 import pkg from 'pg';
-import dotenv from 'dotenv';
+import { databaseConfig } from './config/config.js';
+import { DB_CONFIG, MENSAJES_ERROR } from './config/constants.js';
 
 const { Pool } = pkg;
-dotenv.config();
 
-// Configuración de la conexión a la base de datos
+/**
+ * Pool de conexiones a PostgreSQL
+ * @type {Pool}
+ * @constant
+ */
 const pool = new Pool({
-  user: process.env.DB_USER || 'nickhernd',
-  password: process.env.DB_PASSWORD || 'JAHEDE11',
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'gloria',
-  schema: process.env.DB_SCHEMA || 'gloria'
+  user: databaseConfig.user,
+  password: databaseConfig.password,
+  host: databaseConfig.host,
+  port: databaseConfig.port,
+  database: databaseConfig.database,
+
+  // Configuración avanzada del pool
+  max: databaseConfig.max,
+  idleTimeoutMillis: databaseConfig.idleTimeoutMillis,
+  connectionTimeoutMillis: databaseConfig.connectionTimeoutMillis
 });
 
-// Función para verificar la conexión a la base de datos
+/**
+ * Verifica que el esquema especificado existe en la base de datos
+ *
+ * @private
+ * @param {Object} client - Cliente de PostgreSQL
+ * @param {string} schemaName - Nombre del esquema
+ * @returns {Promise<boolean>} true si el esquema existe
+ */
+async function verificarEsquema(client, schemaName) {
+  const schemaResult = await client.query(`
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.schemata WHERE schema_name = $1
+    );
+  `, [schemaName]);
+
+  return schemaResult.rows[0].exists;
+}
+
+/**
+ * Verifica que las tablas requeridas existan en el esquema
+ *
+ * @private
+ * @param {Object} client - Cliente de PostgreSQL
+ * @param {string} schemaName - Nombre del esquema
+ * @param {string[]} tablasRequeridas - Lista de nombres de tablas requeridas
+ * @returns {Promise<string[]>} Array de tablas faltantes (vacío si todas existen)
+ */
+async function verificarTablas(client, schemaName, tablasRequeridas) {
+  const placeholders = tablasRequeridas.map((_, i) => `$${i + 2}`).join(',');
+
+  const tablesResult = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = $1
+    AND table_name IN (${placeholders})
+  `, [schemaName, ...tablasRequeridas]);
+
+  const tablasEncontradas = tablesResult.rows.map(row => row.table_name);
+  return tablasRequeridas.filter(tabla => !tablasEncontradas.includes(tabla));
+}
+
+/**
+ * Prueba la conexión a la base de datos y verifica la estructura
+ *
+ * @async
+ * @returns {Promise<boolean>} true si la conexión es exitosa y la estructura es válida
+ *
+ * @example
+ * const conectado = await testConnection();
+ * if (conectado) {
+ *   console.log('Base de datos lista');
+ * }
+ */
 const testConnection = async () => {
+  let client;
+
   try {
-    const client = await pool.connect();
-    // Verificar que el esquema gloria existe
-    const schemaResult = await client.query(`
-      SELECT EXISTS (
-        SELECT 1 FROM information_schema.schemata WHERE schema_name = 'gloria'
-      );
-    `);
-    
-    const schemaExists = schemaResult.rows[0].exists;
-    
+    // Intentar obtener una conexión del pool
+    client = await pool.connect();
+    console.log('✅ Conexión al servidor PostgreSQL establecida');
+
+    // Verificar que el esquema existe
+    const schemaExists = await verificarEsquema(client, DB_CONFIG.SCHEMA);
+
     if (!schemaExists) {
-      console.error('El esquema "gloria" no existe en la base de datos');
-      client.release();
+      console.error(`❌ El esquema "${DB_CONFIG.SCHEMA}" no existe en la base de datos`);
       return false;
     }
-    
+
+    console.log(`✅ Esquema "${DB_CONFIG.SCHEMA}" encontrado`);
+
     // Verificar que las tablas necesarias existen
-    const tablesResult = await client.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'gloria' 
-      AND table_name IN ('piscifactorias', 'variables_ambientales', 'alertas', 'datasets');
-    `);
-    
-    const missingTables = ['piscifactorias', 'variables_ambientales', 'alertas', 'datasets']
-      .filter(table => !tablesResult.rows.some(row => row.table_name === table));
-    
-    if (missingTables.length > 0) {
-      console.error(`Faltan las siguientes tablas en el esquema: ${missingTables.join(', ')}`);
-      client.release();
+    const tablasRequeridas = Object.values(DB_CONFIG.TABLAS);
+    const tablasFaltantes = await verificarTablas(client, DB_CONFIG.SCHEMA, tablasRequeridas);
+
+    if (tablasFaltantes.length > 0) {
+      console.error(`❌ Faltan las siguientes tablas en el esquema: ${tablasFaltantes.join(', ')}`);
       return false;
     }
-    
-    client.release();
+
+    console.log(`✅ Todas las tablas requeridas están presentes (${tablasRequeridas.length})`);
+
     return true;
+
   } catch (error) {
-    console.error('Error al conectar con la base de datos:', error);
+    console.error(`❌ ${MENSAJES_ERROR.DB_CONNECTION}:`, error.message);
+
+    // Proporcionar ayuda contextual según el tipo de error
+    if (error.code === 'ECONNREFUSED') {
+      console.error('💡 Verifica que PostgreSQL esté ejecutándose y que el host/puerto sean correctos');
+    } else if (error.code === '28P01') {
+      console.error('💡 Verifica que el usuario y contraseña en .env sean correctos');
+    } else if (error.code === '3D000') {
+      console.error(`💡 La base de datos "${databaseConfig.database}" no existe. Créala primero.`);
+    }
+
     return false;
+
+  } finally {
+    // Asegurarse de liberar el cliente
+    if (client) {
+      client.release();
+    }
   }
 };
 
-// Handler para evitar cerrar la aplicación en caso de error de conexión
-pool.on('error', (err) => {
-  console.error('Error inesperado en el pool de conexiones:', err);
+/**
+ * Realiza una consulta parametrizada a la base de datos
+ *
+ * @async
+ * @param {string} text - Query SQL
+ * @param {Array} [params=[]] - Parámetros de la query
+ * @returns {Promise<Object>} Resultado de la query
+ * @throws {Error} Si hay un error en la consulta
+ *
+ * @example
+ * const result = await query('SELECT * FROM users WHERE id = $1', [userId]);
+ */
+export async function query(text, params = []) {
+  const start = Date.now();
+  try {
+    const res = await pool.query(text, params);
+    const duration = Date.now() - start;
+
+    // Log de queries lentas (más de 1 segundo)
+    if (duration > 1000) {
+      console.warn(`⚠️  Query lenta (${duration}ms): ${text.substring(0, 100)}...`);
+    }
+
+    return res;
+  } catch (error) {
+    console.error(`❌ Error en query: ${error.message}`);
+    console.error(`Query: ${text.substring(0, 100)}...`);
+    throw error;
+  }
+}
+
+/**
+ * Obtiene un cliente del pool para transacciones
+ *
+ * @async
+ * @returns {Promise<Object>} Cliente de PostgreSQL
+ *
+ * @example
+ * const client = await getClient();
+ * try {
+ *   await client.query('BEGIN');
+ *   await client.query('INSERT ...');
+ *   await client.query('COMMIT');
+ * } finally {
+ *   client.release();
+ * }
+ */
+export async function getClient() {
+  return await pool.connect();
+}
+
+/**
+ * Cierra todas las conexiones del pool
+ * Útil para shutdown graceful
+ *
+ * @async
+ * @returns {Promise<void>}
+ */
+export async function closePool() {
+  try {
+    await pool.end();
+    console.log('✅ Pool de conexiones cerrado correctamente');
+  } catch (error) {
+    console.error('❌ Error al cerrar el pool de conexiones:', error);
+    throw error;
+  }
+}
+
+// Handler para errores inesperados del pool
+pool.on('error', (err, client) => {
+  console.error('❌ Error inesperado en el pool de conexiones:', err.message);
+  // No finalizar el proceso, permitir recuperación
+});
+
+// Handler para evento de conexión
+pool.on('connect', (client) => {
+  console.log('🔌 Nueva conexión establecida en el pool');
+});
+
+// Handler para evento de adquisición
+pool.on('acquire', (client) => {
+  console.log('📥 Cliente adquirido del pool');
+});
+
+// Handler para evento de liberación
+pool.on('release', (err, client) => {
+  if (err) {
+    console.error('❌ Error al liberar cliente:', err.message);
+  } else {
+    console.log('📤 Cliente liberado al pool');
+  }
 });
 
 export { pool, testConnection };
