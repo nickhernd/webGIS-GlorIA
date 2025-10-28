@@ -685,20 +685,319 @@ npm install -g serve
 serve -s dist -l 80
 ```
 
-#### Docker (Recomendado para Producción)
+### 🐳 Docker (Recomendado para Producción)
+
+#### Requisitos Previos
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+
+#### Configuración Inicial
+
+1. **Copiar archivo de entorno:**
 ```bash
+cp .env.docker.example .env
+```
+
+2. **Editar credenciales en `.env`:**
+```bash
+# IMPORTANTE: Cambiar TODAS las contraseñas por defecto
+nano .env
+
+# Valores críticos a cambiar:
+DB_PASSWORD=tu_password_seguro
+REDIS_PASSWORD=tu_redis_password
+JWT_SECRET=$(openssl rand -base64 64)
+```
+
+3. **Generar JWT Secret seguro:**
+```bash
+# Linux/Mac
+openssl rand -base64 64
+
+# Windows (PowerShell)
+[Convert]::ToBase64String((1..64 | ForEach-Object { Get-Random -Max 256 }))
+```
+
+#### Inicio Rápido con Docker
+
+##### Opción 1: Usando Makefile (Recomendado)
+```bash
+# Ver comandos disponibles
+make help
+
+# Configuración inicial
+make setup
+
 # Construir imágenes
+make build
+
+# Iniciar servicios
+make up
+
+# Ver logs en tiempo real
+make logs
+
+# Verificar salud de servicios
+make health
+
+# Detener servicios
+make down
+```
+
+##### Opción 2: Usando Docker Compose directamente
+```bash
+# Construir todas las imágenes
 docker-compose build
 
-# Iniciar todos los servicios
+# Iniciar todos los servicios en background
 docker-compose up -d
 
 # Ver logs
 docker-compose logs -f
 
+# Ver estado de contenedores
+docker-compose ps
+
 # Detener servicios
 docker-compose down
+
+# Detener y eliminar volúmenes (¡CUIDADO! Elimina datos)
+docker-compose down -v
 ```
+
+#### Servicios Disponibles
+
+| Servicio | Puerto | URL | Descripción |
+|----------|--------|-----|-------------|
+| **Frontend** | 5173 | http://localhost:5173 | Aplicación Vue 3 con Nginx |
+| **Backend** | 3000 | http://localhost:3000 | API REST Node.js/Express |
+| **Python** | 8000 | http://localhost:8000 | Servicio de predicciones ML |
+| **PostgreSQL** | 5432 | localhost:5432 | Base de datos con PostGIS |
+| **Redis** | 6379 | localhost:6379 | Caché y sesiones |
+| **PgAdmin** | 5050 | http://localhost:5050 | Admin BD (solo dev) |
+
+#### Comandos Útiles
+
+##### Gestión de Contenedores
+```bash
+# Reiniciar un servicio específico
+docker-compose restart backend
+
+# Ver logs de un servicio específico
+docker-compose logs -f postgres
+
+# Ejecutar comando en contenedor
+docker-compose exec backend sh
+docker-compose exec postgres psql -U postgres -d gloria
+```
+
+##### Base de Datos
+```bash
+# Backup de base de datos
+make db-backup
+# o manualmente:
+docker-compose exec -T postgres pg_dump -U postgres gloria > backup.sql
+
+# Restaurar base de datos
+make db-restore FILE=backup.sql
+# o manualmente:
+cat backup.sql | docker-compose exec -T postgres psql -U postgres -d gloria
+
+# Conectar a PostgreSQL
+docker-compose exec postgres psql -U postgres -d gloria
+
+# Verificar extensiones PostGIS
+docker-compose exec postgres psql -U postgres -d gloria -c "SELECT PostGIS_Version();"
+```
+
+##### Monitoreo y Debug
+```bash
+# Ver uso de recursos
+docker stats
+
+# Inspeccionar salud de servicios
+docker-compose ps
+
+# Ver logs de errores del backend
+docker-compose logs --tail=100 backend | grep ERROR
+
+# Entrar al shell del contenedor
+make shell-backend
+make shell-postgres
+make shell-python
+```
+
+#### Modos de Ejecución
+
+##### Modo Desarrollo
+Incluye PgAdmin para administración de base de datos:
+```bash
+make dev
+# o
+docker-compose --profile dev up -d
+```
+
+Acceder a PgAdmin:
+1. Abrir http://localhost:5050
+2. Login con credenciales de `.env`:
+   - Email: `PGADMIN_EMAIL` (default: admin@gloria.local)
+   - Password: `PGADMIN_PASSWORD`
+3. Agregar servidor:
+   - Host: `postgres`
+   - Port: `5432`
+   - User: valor de `DB_USER`
+   - Password: valor de `DB_PASSWORD`
+
+##### Modo Producción
+Solo servicios esenciales:
+```bash
+make prod
+# o
+docker-compose up -d
+```
+
+#### Limpieza y Mantenimiento
+
+```bash
+# Detener todos los servicios
+make down
+
+# Limpiar contenedores y volúmenes (¡ELIMINA DATOS!)
+make clean
+
+# Limpiar todo (contenedores + imágenes + volúmenes)
+make clean-all
+
+# Limpiar recursos Docker no utilizados
+make prune
+docker system prune -a
+```
+
+#### Troubleshooting Docker
+
+<details>
+<summary><strong>Error: "port is already allocated"</strong></summary>
+
+**Solución:**
+```bash
+# Ver qué proceso usa el puerto
+# Linux/Mac:
+lsof -i :5432
+
+# Windows:
+netstat -ano | findstr :5432
+
+# Cambiar puerto en .env
+DB_PORT=5433  # Usar otro puerto
+```
+</details>
+
+<details>
+<summary><strong>Error: "Cannot connect to postgres"</strong></summary>
+
+**Solución:**
+```bash
+# Verificar que el contenedor esté corriendo
+docker-compose ps
+
+# Ver logs de PostgreSQL
+docker-compose logs postgres
+
+# Esperar a que PostgreSQL esté listo (healthcheck)
+docker-compose ps | grep healthy
+
+# Reiniciar servicios
+docker-compose restart postgres backend
+```
+</details>
+
+<details>
+<summary><strong>Contenedor se reinicia constantemente</strong></summary>
+
+**Solución:**
+```bash
+# Ver logs del contenedor
+docker-compose logs backend
+
+# Ver últimas 50 líneas
+docker-compose logs --tail=50 backend
+
+# Ver causas comunes:
+# - Variables de entorno incorrectas
+# - Puerto ya en uso
+# - Dependencias no instaladas
+```
+</details>
+
+<details>
+<summary><strong>Volúmenes ocupan mucho espacio</strong></summary>
+
+**Solución:**
+```bash
+# Ver tamaño de volúmenes
+docker system df -v
+
+# Limpiar volúmenes no utilizados
+docker volume prune
+
+# Backup antes de eliminar datos
+make db-backup
+```
+</details>
+
+#### Arquitectura Docker
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Docker Network                      │
+│                  (gloria-network)                   │
+│                                                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────┐  │
+│  │  Frontend   │  │   Backend   │  │   Python   │  │
+│  │  (Nginx)    │  │  (Node.js)  │  │  (FastAPI) │  │
+│  │  Port: 5173 │  │  Port: 3000 │  │  Port:8000 │  │
+│  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘  │
+│         │                │                 │         │
+│         │                └────────┬────────┘         │
+│         │                         │                  │
+│  ┌──────┴──────────┐    ┌────────▼──────────┐       │
+│  │   PostgreSQL    │◄───┤      Redis        │       │
+│  │   + PostGIS     │    │    (Caché)        │       │
+│  │   + TimescaleDB │    │   Port: 6379      │       │
+│  │   Port: 5432    │    └───────────────────┘       │
+│  └─────────────────┘                                 │
+│         ▲                                            │
+│         │                                            │
+│  ┌──────┴──────────┐                                │
+│  │    PgAdmin      │  (opcional - solo dev)         │
+│  │   Port: 5050    │                                │
+│  └─────────────────┘                                │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+
+Volúmenes Persistentes:
+  - gloria-postgres-data  → /var/lib/postgresql/data
+  - gloria-redis-data     → /data
+  - gloria-pgadmin-data   → /var/lib/pgadmin
+```
+
+#### Optimizaciones de Imagen Docker
+
+Las imágenes utilizan **multi-stage builds** para optimizar tamaño:
+
+| Imagen | Tamaño Original | Tamaño Optimizado | Reducción |
+|--------|----------------|-------------------|-----------|
+| Backend | ~1.2 GB | ~180 MB | 85% |
+| Frontend | ~1.5 GB | ~25 MB | 98% |
+| Python | ~900 MB | ~250 MB | 72% |
+
+**Características de seguridad:**
+- ✅ Usuarios no-root en todos los contenedores
+- ✅ Imágenes Alpine Linux (mínimas)
+- ✅ Multi-stage builds
+- ✅ Healthchecks configurados
+- ✅ Secrets vía variables de entorno
+- ✅ Network isolation
 
 ## 📡 API Documentation
 
