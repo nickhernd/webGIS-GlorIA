@@ -7,6 +7,8 @@ import { pool } from '../db.js';
 import {
   generarDatosTemperatura,
   generarDatosCorrientes,
+  generarDatosProfundidad,
+  generarDatosSalinidad,
   generarPiscifactorias,
   generarAlertas,
   generarDatosCorrientesVectoriales,
@@ -1477,7 +1479,7 @@ router.get('/historico/:variable', async (req, res) => {
   try {
     // Mapeo de variables según el tipo
     let variablesToCheck = [variable];
-    
+
     // Añadir nombres alternativos de variables
     if (variable === 'temperatura' || variable === 'temperature' || variable === 'temp') {
       variablesToCheck = ['temperatura', 'temperature', 'temp', 'temperatura_agua'];
@@ -1487,8 +1489,12 @@ router.get('/historico/:variable', async (req, res) => {
       variablesToCheck = ['vo', 'corriente_v'];
     } else if (variable === 'so' || variable === 'salinidad') {
       variablesToCheck = ['so', 'salinidad'];
+    } else if (variable === 'profundidad' || variable === 'depth' || variable === 'altitud') {
+      variablesToCheck = ['profundidad', 'depth', 'altitud', 'bathymetry'];
+    } else if (variable === 'salinity') {
+      variablesToCheck = ['salinity', 'salinidad', 'sal'];
     }
-    
+
     // Construir la consulta SQL
     let query = `
       SELECT 
