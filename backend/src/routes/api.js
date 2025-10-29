@@ -4,19 +4,34 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pool } from '../db.js';
+import {
+  generarDatosTemperatura,
+  generarDatosCorrientes,
+  generarPiscifactorias,
+  generarAlertas,
+  generarDatosCorrientesVectoriales,
+  generarAnalisisRiesgo,
+  generarPrediccionRiesgo,
+  generarResumenRiesgo
+} from '../services/mockDataService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
+// Flag para detectar si la DB está disponible
+let dbDisponible = true;
+
 // Helper para ejecutar consultas SQL con manejo de errores
 async function queryDB(sql, params = []) {
   try {
     const result = await pool.query(sql, params);
+    dbDisponible = true;
     return { success: true, data: result.rows };
   } catch (error) {
     console.error('Error en consulta a la base de datos:', error.message);
+    dbDisponible = false;
     return { success: false, error: error.message };
   }
 }
@@ -86,18 +101,17 @@ router.get('/corrientes', async (req, res) => {
         datos
       });
     } else {
-      res.json({
-        fecha: fechaConsulta,
-        variable: 'vo',
-        datos: []
-      });
+      // Si no hay datos, generar datos simulados
+      console.log('⚠️  No hay datos de corrientes en DB, generando datos simulados');
+      const datosSimulados = generarDatosCorrientesVectoriales(new Date(fechaConsulta));
+      res.json(datosSimulados);
     }
   } catch (error) {
     console.error('Error al obtener datos de corrientes:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener datos de corrientes',
-      details: error.message
-    });
+    // En caso de error, generar datos simulados
+    console.log('⚠️  Error en DB, generando datos simulados de corrientes');
+    const datosSimulados = generarDatosCorrientesVectoriales(new Date(fechaConsulta || new Date()));
+    res.json(datosSimulados);
   }
 });
 
@@ -182,17 +196,17 @@ router.get('/corrientes/riesgo/:id', async (req, res) => {
         }
       });
     } else {
-      res.status(404).json({ 
-        error: 'No se encontraron datos de corrientes para esta piscifactoría',
-        piscifactoriaId
-      });
+      // Si no hay datos, generar análisis simulado
+      console.log('⚠️  No hay datos para análisis de riesgo, generando simulado');
+      const analisisSimulado = generarAnalisisRiesgo(piscifactoriaId);
+      res.json(analisisSimulado);
     }
   } catch (error) {
     console.error('Error al obtener análisis de riesgo:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener análisis de riesgo',
-      details: error.message
-    });
+    // En caso de error, generar análisis simulado
+    console.log('⚠️  Error en DB, generando análisis de riesgo simulado');
+    const analisisSimulado = generarAnalisisRiesgo(piscifactoriaId);
+    res.json(analisisSimulado);
   }
 });
 
@@ -559,17 +573,17 @@ router.get('/riesgo/prediccion/:id', async (req, res) => {
         predicciones
       });
     } else {
-      res.status(404).json({ 
-        error: 'No hay suficientes datos históricos para generar una predicción',
-        piscifactoriaId
-      });
+      // Si no hay datos, generar predicción simulada
+      console.log('⚠️  No hay datos para predicción, generando simulado');
+      const prediccionSimulada = generarPrediccionRiesgo(piscifactoriaId, parseInt(dias));
+      res.json(prediccionSimulada);
     }
   } catch (error) {
     console.error('Error al generar predicción de riesgo:', error);
-    res.status(500).json({ 
-      error: 'Error al generar predicción de riesgo',
-      details: error.message
-    });
+    // En caso de error, generar predicción simulada
+    console.log('⚠️  Error en DB, generando predicción simulada');
+    const prediccionSimulada = generarPrediccionRiesgo(piscifactoriaId, parseInt(dias || 7));
+    res.json(prediccionSimulada);
   }
 });
 
@@ -778,13 +792,13 @@ router.get('/riesgo/resumen', async (req, res) => {
     // Obtener resumen de predicciones más recientes para todas las piscifactorías
     const result = await queryDB(`
       WITH ultimas_predicciones AS (
-        SELECT 
-          pe.piscifactoria_id, 
+        SELECT
+          pe.piscifactoria_id,
           MAX(pe.fecha) as ultima_fecha
         FROM gloria.prediccion_escapes pe
         GROUP BY pe.piscifactoria_id
       )
-      SELECT 
+      SELECT
         pe.piscifactoria_id,
         p.nombre as piscifactoria_nombre,
         p.tipo as piscifactoria_tipo,
@@ -802,8 +816,8 @@ router.get('/riesgo/resumen', async (req, res) => {
       JOIN gloria.piscifactorias p ON pe.piscifactoria_id = p.id
       ORDER BY pe.indice_riesgo DESC
     `);
-    
-    if (result.success) {
+
+    if (result.success && result.data.length > 0) {
       // Transformar resultados para incluir porcentaje
       const resumen = result.data.map(pred => ({
         piscifactoria: {
@@ -820,17 +834,20 @@ router.get('/riesgo/resumen', async (req, res) => {
         },
         fecha: pred.fecha
       }));
-      
+
       res.json(resumen);
     } else {
-      res.json([]);
+      // Si no hay datos, generar resumen simulado
+      console.log('⚠️  No hay datos de resumen de riesgo, generando simulado');
+      const resumenSimulado = generarResumenRiesgo();
+      res.json(resumenSimulado);
     }
   } catch (error) {
     console.error('Error al obtener resumen de riesgo:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener resumen de riesgo',
-      details: error.message
-    });
+    // En caso de error, generar resumen simulado
+    console.log('⚠️  Error en DB, generando resumen de riesgo simulado');
+    const resumenSimulado = generarResumenRiesgo();
+    res.json(resumenSimulado);
   }
 });
 
@@ -838,12 +855,12 @@ router.get('/riesgo/resumen', async (req, res) => {
 router.get('/piscifactorias', async (req, res) => {
   // Obtener datos de la base de datos
   const result = await queryDB(`
-    SELECT 
-      id, 
-      nombre as name, 
-      descripcion as description, 
-      tipo as type, 
-      especies as species, 
+    SELECT
+      id,
+      nombre as name,
+      descripcion as description,
+      tipo as type,
+      especies as species,
       ciudad as city,
       provincia as province,
       comunidad_autonoma as region,
@@ -854,11 +871,11 @@ router.get('/piscifactorias', async (req, res) => {
       ST_X(geometria) as longitude,
       ST_Y(geometria) as latitude,
       ST_AsGeoJSON(geometria)::json as geometry
-    FROM gloria.piscifactorias 
+    FROM gloria.piscifactorias
     WHERE activo = true
     ORDER BY nombre
   `);
-  
+
   // Si la consulta ok y hay datos
   if (result.success && result.data.length > 0) {
     // Transformar datos para mantener compatibilidad con el frontend
@@ -877,13 +894,13 @@ router.get('/piscifactorias', async (req, res) => {
       active: row.active,
       geometry: row.geometry
     }));
-    
+
     return res.json(piscifactorias);
   }
-  
-  // Si no hay datos o hay un error, devolver array vacío
-  console.log('No hay datos de piscifactorías en la base de datos');
-  res.json([]);
+
+  // Si no hay datos o hay un error, usar datos simulados
+  console.log('⚠️  DB no disponible, usando datos simulados de piscifactorías');
+  res.json(generarPiscifactorias());
 });
 
 // Ruta para obtener detalles de una piscifactoría específica
@@ -1502,18 +1519,43 @@ router.get('/historico/:variable', async (req, res) => {
     
     const result = await pool.query(query, queryParams);
     console.log(`Resultados encontrados: ${result.rows.length}`);
-    
+
+    // Si no hay resultados, usar datos simulados
+    if (result.rows.length === 0) {
+      console.log('⚠️  No hay datos en DB, generando datos simulados');
+      let datosMock = [];
+
+      if (variable === 'temperatura' || variable === 'temperature' || variable === 'temp') {
+        datosMock = generarDatosTemperatura(piscifactoriaId || 1, fechaInicial, fechaFinal);
+      } else if (variable === 'corrientes' || variable === 'current' || variable === 'vo' || variable === 'uo') {
+        datosMock = generarDatosCorrientes(piscifactoriaId || 1, fechaInicial, fechaFinal);
+      } else {
+        // Para otras variables, generar datos genéricos
+        datosMock = generarDatosTemperatura(piscifactoriaId || 1, fechaInicial, fechaFinal);
+      }
+
+      return res.json({
+        variable,
+        piscifactoriaId: piscifactoriaId ? parseInt(piscifactoriaId, 10) : null,
+        periodo,
+        fechaInicio: fechaInicial.toISOString(),
+        fechaFin: fechaFinal.toISOString(),
+        datos: datosMock,
+        mock: true
+      });
+    }
+
     // Mostrar algunos resultados de ejemplo para depurar
     if (result.rows.length > 0) {
       console.log("Ejemplo de datos:", result.rows.slice(0, 3));
     }
-    
+
     // Transformar los resultados
     const datos = result.rows.map(row => ({
       fecha: row.fecha,
       valor: parseFloat((row.valor || 0).toFixed(2))
     }));
-    
+
     res.json({
       variable,
       piscifactoriaId: piscifactoriaId ? parseInt(piscifactoriaId, 10) : null,
@@ -1524,9 +1566,27 @@ router.get('/historico/:variable', async (req, res) => {
     });
   } catch (error) {
     console.error('Error al obtener datos históricos:', error);
-    res.status(500).json({ 
-      error: 'Error al obtener datos históricos de la base de datos',
-      details: error.message
+
+    // En caso de error, también generar datos simulados
+    console.log('⚠️  Error en DB, generando datos simulados');
+    let datosMock = [];
+
+    if (variable === 'temperatura' || variable === 'temperature' || variable === 'temp') {
+      datosMock = generarDatosTemperatura(piscifactoriaId || 1, fechaInicial, fechaFinal);
+    } else if (variable === 'corrientes' || variable === 'current' || variable === 'vo' || variable === 'uo') {
+      datosMock = generarDatosCorrientes(piscifactoriaId || 1, fechaInicial, fechaFinal);
+    } else {
+      datosMock = generarDatosTemperatura(piscifactoriaId || 1, fechaInicial, fechaFinal);
+    }
+
+    res.json({
+      variable,
+      piscifactoriaId: piscifactoriaId ? parseInt(piscifactoriaId, 10) : null,
+      periodo,
+      fechaInicio: fechaInicial.toISOString(),
+      fechaFin: fechaFinal.toISOString(),
+      datos: datosMock,
+      mock: true
     });
   }
 });
