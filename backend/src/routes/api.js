@@ -1681,4 +1681,106 @@ router.post('/copernicus/ejecutar', (req, res) => {
   }
 });
 
+// Obtener datos de oleaje desde archivo JSON (para ejecución sin base de datos)
+router.get('/oleaje/datos', async (req, res) => {
+  try {
+    const dataPath = path.join(__dirname, '../../data/wave_data.json');
+
+    // Verificar si el archivo existe
+    if (!fs.existsSync(dataPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Archivo de datos de oleaje no encontrado',
+        message: 'Ejecuta el script extract_to_json.py primero para generar los datos'
+      });
+    }
+
+    // Leer el archivo JSON
+    const rawData = fs.readFileSync(dataPath, 'utf8');
+    const waveData = JSON.parse(rawData);
+
+    res.json({
+      success: true,
+      data: waveData.data,
+      statistics: waveData.statistics,
+      metadata: waveData.metadata
+    });
+  } catch (error) {
+    console.error('Error al leer datos de oleaje:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al cargar datos de oleaje',
+      details: error.message
+    });
+  }
+});
+
+// Obtener datos de corrientes desde archivo JSON
+router.get('/corrientes/datos', async (req, res) => {
+  try {
+    const dataPath = path.join(__dirname, '../../data/current_data.json');
+
+    // Verificar si el archivo existe
+    if (!fs.existsSync(dataPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Archivo de datos de corrientes no encontrado',
+        message: 'Ejecuta el script extract_currents_to_json.py primero para generar los datos'
+      });
+    }
+
+    // Leer el archivo JSON
+    const rawData = fs.readFileSync(dataPath, 'utf8');
+    const currentData = JSON.parse(rawData);
+
+    res.json({
+      success: true,
+      data: currentData.data,
+      statistics: currentData.statistics,
+      metadata: currentData.metadata
+    });
+  } catch (error) {
+    console.error('Error al leer datos de corrientes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al cargar datos de corrientes',
+      details: error.message
+    });
+  }
+});
+
+// Obtener datos de temperatura desde archivo JSON
+router.get('/temperatura/datos', async (req, res) => {
+  try {
+    const dataPath = path.join(__dirname, '../../data/temperature_data.json');
+
+    // Verificar si el archivo existe
+    if (!fs.existsSync(dataPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Archivo de datos de temperatura no encontrado',
+        message: 'Ejecuta el script extract_temp_to_json.py primero para generar los datos'
+      });
+    }
+
+    // Leer el archivo JSON
+    const rawData = fs.readFileSync(dataPath, 'utf8');
+    const temperatureData = JSON.parse(rawData);
+
+    res.json({
+      success: true,
+      data: temperatureData.data,
+      statistics: temperatureData.statistics,
+      metadata: temperatureData.metadata
+    });
+  } catch (error) {
+    console.error('Error al leer datos de temperatura:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al cargar datos de temperatura',
+      details: error.message
+    });
+  }
+});
+
 export default router;

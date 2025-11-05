@@ -67,12 +67,14 @@ CREATE TABLE gloria.variables_ambientales (
     geometria GEOMETRY(POINT, 4326) NOT NULL,
     profundidad FLOAT,            -- En metros, NULL para variables de superficie
     calidad INTEGER,              -- Indicador de calidad del dato (0-100)
-    observaciones TEXT,
-    -- Optimización para consultas temporales
-    CONSTRAINT variables_espacio_tiempo UNIQUE (variable_nombre, fecha_tiempo, geometria)
+    observaciones TEXT
 );
 -- Convertir a tabla de TimescaleDB para mejorar el rendimiento en series temporales
+-- Nota: TimescaleDB requiere que fecha_tiempo esté en todos los índices únicos
 SELECT create_hypertable('gloria.variables_ambientales', 'fecha_tiempo');
+
+-- Crear índice para optimizar consultas (no único debido a limitaciones de TimescaleDB con geometría)
+CREATE INDEX idx_variables_espacio_tiempo ON gloria.variables_ambientales (variable_nombre, fecha_tiempo, ST_X(geometria), ST_Y(geometria));
 
 -- Tabla de alertas y eventos
 CREATE TABLE gloria.alertas (

@@ -22,6 +22,10 @@ requests==2.31.0
 python-dotenv==1.0.0
 python-multipart==0.0.6
 
-# Validación y testing (opcional)
+# NetCDF para procesamiento de archivos NC
+netCDF4==1.6.5
+xarray==2023.12.0
+
+# Validaciï¿½n y testing (opcional)
 pytest==7.4.4
 pytest-asyncio==0.23.3

@@ -16,6 +16,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./databases/init.sql:/docker-entrypoint-initdb.d/01-init.sql
       - ./databases/init-extensions.sql:/docker-entrypoint-initdb.d/02-extensions.sql
+      - ./databases/03-wave-config.sql:/docker-entrypoint-initdb.d/03-wave-config.sql
     networks:
       - gloria-network
     healthcheck:
@@ -138,6 +139,8 @@ services:
       DB_NAME: ${DB_NAME:-gloria}
     ports:
       - "${PYTHON_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -19,13 +19,14 @@ export default {
 }
 
 html, body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
-  color: #333;
+  color: #111827;
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background: #f9fafb;
 }
 
 #app {

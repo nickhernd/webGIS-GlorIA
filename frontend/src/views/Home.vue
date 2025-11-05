@@ -1,232 +1,207 @@
 <template>
-  <div class="dashboard-container">
+  <div class="app-container">
+    <!-- Header minimalista -->
     <header class="header">
-      <h1>GlorIA - Monitoreo de Piscifactorías</h1>
-      <div class="header-controls">
-        <select v-model="selectedFarmId" @change="onFarmChange" class="farm-selector">
-          <option value="">Todas las piscifactorías</option>
-          <option v-for="farm in piscifactorias" :key="farm.id" :value="farm.id">
-            {{ farm.name }}
-          </option>
-        </select>
-        <button @click="refreshData" class="refresh-btn" aria-label="Actualizar datos">
-          <i class="reload-icon"></i>
-        </button>
+      <div class="header-content">
+        <h1>GlorIA</h1>
+        <div class="header-actions">
+          <div class="period-selector-compact">
+            <label class="period-label">Período:</label>
+            <div class="period-buttons">
+              <button @click="setDateRange(1)" :class="['period-btn', activePeriod === 1 ? 'active' : '']">24h</button>
+              <button @click="setDateRange(7)" :class="['period-btn', activePeriod === 7 ? 'active' : '']">7d</button>
+              <button @click="setDateRange(14)" :class="['period-btn', activePeriod === 14 ? 'active' : '']">14d</button>
+              <button @click="setDateRange(30)" :class="['period-btn', activePeriod === 30 ? 'active' : '']">30d</button>
+            </div>
+          </div>
+          <select v-model="selectedFarmId" @change="onFarmChange" class="select-minimal">
+            <option value="">Todas las piscifactorías</option>
+            <option v-for="farm in piscifactorias" :key="farm.id" :value="farm.id">
+              {{ farm.name }}
+            </option>
+          </select>
+          <button @click="refreshData" class="btn-icon" title="Actualizar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
 
-    <!-- Selector de Rango de Fechas -->
-    <section class="date-range-section">
-      <date-range-picker
-        v-model="dateRange"
-        :format="'dd/MM/yyyy'"
-        :preview-format="'dd/MM/yyyy'"
-        :placeholder="'Seleccionar rango de fechas'"
-        :locale="'es'"
-        range
-        class="date-picker"
-        @update:model-value="onDateChange"
-      />
-    </section>
-    
-    <div class="dashboard-main">
-      <!-- Panel Izquierdo -->
-      <div class="left-panel">
-        <!-- Panel de Alertas -->
-        <section class="panel alerts-panel">
-          <h2>Alertas activas</h2>
-          <div class="alerts-content">
-            <div v-if="alertas.length > 0" class="alerts-list">
-              <div v-for="alerta in alertas.slice(0, 4)" :key="alerta.id" :class="['alert-item', `alert-${alerta.nivel}`]">
-                <div class="alert-title">{{ alerta.titulo }}</div>
-                <div class="alert-message">{{ alerta.mensaje }}</div>
+    <!-- Contenido principal -->
+    <main class="main-content">
+      <!-- Sidebar lateral -->
+      <aside class="sidebar">
+        <!-- Alertas -->
+        <!-- <section class="card">
+          <h2>Alertas</h2>
+          <div v-if="alertas.length > 0" class="alerts">
+            <div v-for="alerta in alertas.slice(0, 3)" :key="alerta.id" :class="['alert', `alert-${alerta.nivel}`]">
+              <strong>{{ alerta.titulo }}</strong>
+              <p>{{ alerta.mensaje }}</p>
+            </div>
+          </div>
+          <p v-else class="empty-state">Sin alertas activas</p>
+        </section> -->
+
+        <!-- Nivel de riesgo -->
+        <!-- <section class="card">
+          <h2>Riesgo</h2>
+          <div class="risk-display">
+            <div class="risk-value" :style="{ color: riskColor }">{{ riskLevel }}%</div>
+            <div class="risk-bar">
+              <div class="risk-fill" :style="{ width: `${riskPercent}%`, backgroundColor: riskColor }"></div>
+            </div>
+            <p class="risk-label">{{ riskText }}</p>
+          </div>
+        </section> -->
+
+        <!-- Estadísticas Avanzadas de Temperatura -->
+        <temperature-statistics
+          v-if="realTemperatureData && realTemperatureData.statistics"
+          :statistics="realTemperatureData.statistics"
+          :metadata="realTemperatureData.metadata"
+        />
+
+        <!-- Estadísticas Avanzadas de Oleaje -->
+        <wave-statistics
+          v-if="waveData && waveData.statistics"
+          :statistics="waveData.statistics"
+          :metadata="waveData.metadata"
+        />
+      </aside>
+
+      <!-- Área principal con mapa y gráficos -->
+      <div class="content-area">
+        <!-- Fila 1: Mapa y Gráfico de Temperatura -->
+        <div class="row-top">
+          <!-- Mapa -->
+          <section class="card map-card">
+            <div class="card-header">
+              <h2>Mapa</h2>
+              <div class="header-controls">
+                <select v-model="selectedHeatmapDate" @change="updateHeatmap" class="select-small">
+                  <option value="">Fecha heatmap</option>
+                  <option v-for="date in availableDates" :key="date" :value="date">
+                    {{ formatDate(date) }}
+                  </option>
+                </select>
               </div>
             </div>
-            <div v-else class="no-data-message">
-              No hay alertas activas
-            </div>
-          </div>
-        </section>
-        
-        <!-- Panel de Temperatura Histórica -->
-        <section class="panel chart-panel">
-          <div class="panel-header">
-            <h2>Temperatura histórica</h2>
-            <select v-model="tempChartPeriod" @change="updateTempChart" class="period-select">
-              <option value="day">24 horas</option>
-              <option value="week">7 días</option>
-              <option value="month">30 días</option>
-            </select>
-          </div>
-          <div class="chart-container">
-            <canvas ref="tempChart"></canvas>
-            <div class="no-data-overlay" v-if="!tempData || tempData.length === 0">
-              No hay datos disponibles
-            </div>
-          </div>
-        </section>
-        
-        <!-- Panel de Estadísticas -->
-        <statistics-panel 
-          :piscifactoria-id="selectedFarmId" 
-          :date-range="dateRange"
-        />
-      </div>
-      
-      <!-- Panel Central y Derecho -->
-      <div class="right-panel">
-        <!-- Panel del Mapa -->
-        <section class="panel map-panel">
-          <h2>Ubicación geográfica</h2>
-          <div class="map-container">
-            <div id="map" ref="mapContainer"></div>
-
-            <!-- Controles de zoom -->
-            <div class="map-controls">
-              <button @click="zoomIn" class="map-btn">+</button>
-              <button @click="zoomOut" class="map-btn">−</button>
-            </div>
-
-
-
-            <!-- Control de animación temporal para el riesgo -->
-            <div class="timeline-control" v-if="showRiskLayer && riskData.length > 0">
-              <div class="timeline-header">
-                <h3>Evolución del riesgo</h3>
-                <div class="timeline-buttons">
-                  <button @click="playPauseTimeline" class="timeline-btn">
-                    <i :class="isTimelinePlaying ? 'pause-icon' : 'play-icon'"></i>
-                  </button>
-                  <button @click="resetTimeline" class="timeline-btn">
-                    <i class="reset-icon"></i>
-                  </button>
+            <div class="map-container">
+              <div id="map" ref="mapContainer"></div>
+              <div class="map-controls">
+                <button @click="zoomIn" class="map-btn" title="Acercar">+</button>
+                <button @click="zoomOut" class="map-btn" title="Alejar">−</button>
+                <button @click="resetView" class="map-btn map-btn-reset" title="Vista general">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="map-layers">
+                <div class="layer-control">
+                  <div class="layer-header">Capas de Datos Reales</div>
+                  <label class="layer-label">
+                    <input type="checkbox" v-model="layers.waves" @change="toggleLayer('waves')">
+                    <span class="layer-dot" style="background: #0ea5e9;"></span>
+                    <span>Oleaje</span>
+                  </label>
+                  <!-- <label class="layer-label">
+                    <input type="checkbox" v-model="layers.currents" @change="toggleLayer('currents')">
+                    <span class="layer-dot" style="background: #3b82f6;"></span>
+                    <span>Corrientes</span>
+                  </label> -->
+                  <label class="layer-label">
+                    <input type="checkbox" v-model="layers.temperature" @change="toggleLayer('temperature')">
+                    <span class="layer-dot" style="background: #ef4444;"></span>
+                    <span>Temperatura</span>
+                  </label>
+                  <!-- <label class="layer-label">
+                    <input type="checkbox" v-model="layers.salinity" @change="toggleLayer('salinity')">
+                    <span class="layer-dot" style="background: #10b981;"></span>
+                    <span>Salinidad</span>
+                  </label> -->
                 </div>
               </div>
-              <div class="timeline-slider-container">
-                <input 
-                  type="range" 
-                  class="timeline-slider" 
-                  min="0" 
-                  :max="riskPredictionDays.length - 1" 
-                  v-model="currentTimelineIndex"
-                  @input="onTimelineSliderChange">
-                <div class="timeline-date">{{ currentTimelineDate }}</div>
-              </div>
-            </div>
 
-            <!-- Leyendas para cada capa -->
-            <div 
-              class="map-legend temperature-legend" 
-              :class="{ 'active': showTemperatureLayer }"
-              v-if="temperatureLayer">
-              <div class="legend-title">Temperatura (°C)</div>
-              <div class="legend-scale temperature-scale">
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-              </div>
-              <div class="legend-labels">
-                <span>12°C</span>
-                <span>30°C</span>
+              <!-- Leyenda de mapas de calor -->
+              <div v-if="hasActiveLayers" class="heatmap-legend">
+                <div class="legend-title">Intensidad</div>
+                <div class="legend-gradient" :style="{ background: activeLegendGradient }"></div>
+                <div class="legend-labels">
+                  <span>Baja</span>
+                  <span>Alta</span>
+                </div>
               </div>
             </div>
+          </section>
 
-            <div 
-              class="map-legend risk-legend" 
-              :class="{ 'active': showRiskLayer }"
-              v-if="riskLayer">
-              <div class="legend-title">Nivel de riesgo</div>
-              <div class="legend-scale risk-scale">
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-                <div class="legend-scale-item"></div>
-              </div>
-              <div class="legend-labels">
-                <span>Bajo</span>
-                <span>Alto</span>
+          <!-- Gráfico de temperatura -->
+          <section class="card chart-card">
+            <div class="card-header">
+              <h2>Temperatura</h2>
+              <div class="header-info">
+                <span class="data-source" v-if="realTemperatureData">Datos CMCC TEMP-MFSeas9</span>
+                <span class="data-source simulated" v-else>⚠️ Datos simulados</span>
               </div>
             </div>
+            <div class="chart-wrapper">
+              <canvas ref="tempChart"></canvas>
+              <div v-if="!tempData || tempData.length === 0" class="empty-chart">Sin datos</div>
+            </div>
+          </section>
+        </div>
 
-            <div 
-              class="map-legend currents-legend" 
-              :class="{ 'active': showCorrientsLayer }"
-              v-if="arrowsLayer">
-              <div class="legend-title">Corrientes marinas</div>
-              <div class="current-arrow-legend">
-                <svg class="arrow-reference" viewBox="0 0 50 50">
-                  <polygon points="0,20 40,20 40,10 50,25 40,40 40,30 0,30"
-                           fill="#4a6bff" stroke="#000" stroke-width="1" />
-                </svg>
-                <span class="arrow-label">Dirección y fuerza</span>
-              </div>
+        <!-- Fila 2: Gráfico de Oleaje (ancho completo) -->
+        <section class="card chart-card-wide">
+          <div class="card-header">
+            <h2>Altura de Oleaje</h2>
+            <div class="header-info">
+              <span class="data-source">Datos HCMR WAVE-MEDWAM4</span>
             </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas ref="waveChart"></canvas>
+            <div v-if="!waveData || !waveData.data || waveData.data.length === 0" class="empty-chart">Sin datos de oleaje</div>
           </div>
         </section>
-        
-        <!-- Panel de Nivel de Riesgo -->
-        <section class="panel risk-panel">
-          <h2>Nivel de riesgo</h2>
-          <div class="risk-content">
-            <div class="risk-value" :style="{ color: riskColor }">{{ riskLevel }}%</div>
-            <div class="risk-bar-container">
-              <div class="risk-bar">
-                <div class="risk-fill" :style="{ width: `${riskPercent}%`, backgroundColor: riskColor }"></div>
-              </div>
+
+        <!-- Fila 3: Gráfico de Corrientes (ancho completo) -->
+        <!-- <section class="card chart-card-wide">
+          <div class="card-header">
+            <h2>Corrientes</h2>
+            <div class="header-info">
+              <span class="data-source simulated">⚠️ Datos simulados</span>
             </div>
-            <div class="risk-label">{{ riskText }}</div>
-            <div class="risk-updated">Última actualización: {{ riskLastUpdated }}</div>
           </div>
-        </section>
-        
-        <!-- Panel de Corrientes Históricas -->
-        <section class="panel chart-panel">
-          <div class="panel-header">
-            <h2>Corrientes históricas</h2>
-            <select v-model="currentChartPeriod" @change="updateCurrentChart" class="period-select">
-              <option value="day">24 horas</option>
-              <option value="week">7 días</option>
-              <option value="month">30 días</option>
-            </select>
-          </div>
-          <div class="chart-container">
+          <div class="chart-wrapper">
             <canvas ref="currentChart"></canvas>
-            <div class="no-data-overlay" v-if="!currentData || currentData.length === 0">
-              No hay datos disponibles
-            </div>
+            <div v-if="!currentData || currentData.length === 0" class="empty-chart">Sin datos</div>
           </div>
-        </section>
-
-        <!--
-        <section class="panel chart-panel">
-          <div class="panel-header">
-            <h2>Evolución del Nivel de Riesgo</h2>
-          </div>
-          <div class="chart-container">
-            <canvas ref="riskChart"></canvas>
-            <div class="no-data-overlay" v-if="riskHistory.length === 0">
-              No hay datos disponibles
-            </div>
-          </div>
-        </section>
-        
-        <section class="panel escape-probability-panel">
-          <h2>Probabilidad de Escape</h2>
-          <div class="escape-probability-content">
-            <div class="probability-value" :style="{ color: escapeProbabilityColor }">{{ escapeProbability }}%</div>
-            <div class="probability-description">{{ escapeProbabilityText }}</div>
-          </div>
-        </section>
-          -->
+        </section> -->
       </div>
+    </main>
+
+    <!-- Loading overlay -->
+    <div v-if="loading" class="loading-overlay">
+      <div class="spinner"></div>
     </div>
 
-    <div class="loading-overlay" v-if="loading">
-      <div class="loader"></div>
-    </div>
+    <!-- Footer con logos -->
+    <footer class="footer">
+      <div class="footer-content">
+        <div class="footer-logos">
+          <img src="/images/gloria.png" alt="GlorIA" class="footer-logo">
+          <img src="/images/universitat_alacant.png" alt="Universitat d'Alacant" class="footer-logo">
+          <img src="/images/eut.jpg" alt="EUT" class="footer-logo">
+          <img src="/images/fondos_europeos.jpg" alt="Fondos Europeos" class="footer-logo">
+          <img src="/images/pablo_de_olivade.jpg" alt="Pablo de Olivade" class="footer-logo">
+        </div>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -236,177 +211,131 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.heat';
 import DataService from '../services/DataService';
 import Chart from 'chart.js/auto';
-import DateRangePicker from '@vuepic/vue-datepicker';
-import '@vuepic/vue-datepicker/dist/main.css';
 import StatisticsPanel from '../components/StatisticsPanel.vue';
+import WaveStatistics from '../components/WaveStatistics.vue';
+import TemperatureStatistics from '../components/TemperatureStatistics.vue';
 
 export default {
   name: 'Home',
   components: {
-    DateRangePicker,
-    StatisticsPanel
-  },
-  props: {
-    id: {
-      type: [String, Number],
-      default: null
-    }
+    StatisticsPanel,
+    WaveStatistics,
+    TemperatureStatistics
   },
   data() {
     return {
       map: null,
-      heatLayer: null,
       markersLayer: null,
-      farmAreaLayer: null,
+      heatmapLayers: {
+        temperature: null,
+        currents: null,
+        salinity: null
+      },
+      layers: {
+        waves: false,
+        temperature: false,
+        currents: false,
+        salinity: false
+      },
+      selectedHeatmapDate: '',
+      availableDates: [],
       piscifactorias: [],
       selectedFarmId: '',
       loading: true,
       alertas: [],
-      selectedFarmStats: null,
+      waveData: null,
+      realCurrentData: null,
+      realTemperatureData: null,
       tempData: [],
       currentData: [],
-      variableData: {},
       tempChart: null,
       currentChart: null,
-      riskLevel: 30, // Ahora representa el porcentaje directamente (0-100)
-      riskHistory: [], // Historial de riesgo para la gráfica (ahora en porcentaje)
-      environmentalData: [],
-      tempChartPeriod: 'month',
+      waveChart: null,
+      riskLevel: 30,
+      tempChartPeriod: 'week',
       currentChartPeriod: 'week',
-      corrientesLayer: null,
-      temperatureLayer: null,
-      riskLayer: null,
-      showCorrientsLayer: false,
-      showTemperatureLayer: false, 
-      showRiskLayer: false,
-      corrientesData: [],
-      temperatureData: [],
-      riskData: [],
-      arrowsLayer: null,
-      // Nuevas propiedades para la línea de tiempo
-      riskPredictionDays: [],
-      currentTimelineIndex: 0,
-      isTimelinePlaying: false,
-      timelineInterval: null,
-      dateRange: {
-        start: new Date(new Date().setDate(new Date().getDate() - 30)),
-        end: new Date()
-      },
-      riskLastUpdated: null,      // Fecha de última actualización del riesgo
-      escapeProbability: 0,       // Probabilidad de escape en porcentaje
-      escapeProbabilityText: 'Sin datos suficientes para calcular',
-      escapeProbabilityColor: '#4a6bff',
+      startDate: '2025-01-01',
+      endDate: '2025-12-31',
+      activePeriod: 365
     };
   },
   computed: {
-    // riskPercent ya no es necesario si riskLevel ya es un porcentaje
-    // Deja este método para compatibilidad, pero ahora solo devuelve el valor
     riskPercent() {
       return this.riskLevel;
     },
     riskColor() {
-      if (this.riskLevel >= 70) return '#e74c3c';
-      if (this.riskLevel >= 40) return '#f39c12';
-      return '#2ecc71';
+      if (this.riskLevel >= 70) return '#ef4444';
+      if (this.riskLevel >= 40) return '#f59e0b';
+      return '#10b981';
     },
     riskText() {
       if (this.riskLevel >= 70) return 'Alto';
       if (this.riskLevel >= 40) return 'Medio';
       return 'Bajo';
     },
-    currentTimelineDate() {
-      if (this.riskPredictionDays.length === 0) return '';
-      const currentDay = this.riskPredictionDays[this.currentTimelineIndex];
-      if (!currentDay) return '';
-      return new Date(currentDay.fecha).toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
+    hasActiveLayers() {
+      return this.layers.waves || this.layers.temperature || this.layers.currents || this.layers.salinity;
     },
-    escapeProbabilityColor() {
-      if (this.escapeProbability >= 50) return '#e74c3c';
-      if (this.escapeProbability >= 20) return '#f39c12';
-      return '#4a6bff';
-    },
-  },
-  watch: {
-    id: {
-      immediate: true,
-      handler(newId) {
-        if (newId) {
-          this.selectedFarmId = newId;
-          this.onFarmChange();
-        }
+    activeLegendGradient() {
+      // Mostrar el gradiente de la primera capa activa
+      if (this.layers.waves) {
+        return 'linear-gradient(to right, #10b981, #fbbf24, #f97316, #ef4444, #000000)';
+      } else if (this.layers.temperature) {
+        return 'linear-gradient(to right, #3b82f6, #06b6d4, #10b981, #f59e0b, #ef4444)';
+      } else if (this.layers.currents) {
+        return 'linear-gradient(to right, #dbeafe, #93c5fd, #3b82f6, #1e40af, #1e3a8a)';
+      } else if (this.layers.salinity) {
+        return 'linear-gradient(to right, #d1fae5, #6ee7b7, #10b981, #059669, #047857)';
       }
-    },
-    showRiskLayer(newVal) {
-      // Si se desactiva la capa de riesgo, detener la animación
-      if (!newVal && this.isTimelinePlaying) {
-        this.stopTimeline();
-      }
+      return '';
     }
   },
   async mounted() {
     await this.initMap();
     await this.loadPiscifactorias();
-    
-    if (this.id) {
-      this.selectedFarmId = this.id;
-    }
-    
+    await this.loadWaveData();
+    await this.loadCurrentData();
+    await this.loadTemperatureData();
     await this.onFarmChange();
-    
-    // Cargar capas del mapa
-    await this.loadMapLayers();
-    
+    this.generateAvailableDates();
     this.loading = false;
   },
   beforeUnmount() {
-    if (this.map) {
-      this.map.remove();
-    }
-    if (this.tempChart) {
-      this.tempChart.destroy();
-    }
-    if (this.currentChart) {
-      this.currentChart.destroy();
-    }
-    // Asegurarse de detener el intervalo al desmontar
-    this.stopTimeline();
+    if (this.map) this.map.remove();
+    if (this.tempChart) this.tempChart.destroy();
+    if (this.currentChart) this.currentChart.destroy();
+    if (this.waveChart) this.waveChart.destroy();
   },
   methods: {
     async initMap() {
-      // Inicializar mapa centrado en España/Mediterráneo
       this.map = L.map(this.$refs.mapContainer, {
-        center: [39.5, -0.5], // Valencia, aproximadamente
-        zoom: 7,
+        center: [38.5, -0.5],  // Centrado en Comunidad Valenciana
+        zoom: 8,
         minZoom: 5,
         maxZoom: 15,
         zoomControl: false
       });
-      
-      // Añadir capa base de OpenStreetMap
+
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        attribution: '© OpenStreetMap'
       }).addTo(this.map);
-      
-      // Inicializar capa para marcadores
+
       this.markersLayer = L.layerGroup().addTo(this.map);
     },
-    
+
     zoomIn() {
-      if (this.map) {
-        this.map.zoomIn();
-      }
+      if (this.map) this.map.zoomIn();
     },
-    
+
     zoomOut() {
-      if (this.map) {
-        this.map.zoomOut();
-      }
+      if (this.map) this.map.zoomOut();
     },
-    
+
+    resetView() {
+      this.selectedFarmId = '';
+      this.onFarmChange();
+    },
+
     async loadPiscifactorias() {
       try {
         const response = await DataService.getPiscifactorias();
@@ -418,741 +347,362 @@ export default {
         console.error('Error al cargar piscifactorías:', error);
       }
     },
-    
+
+    async loadWaveData() {
+      try {
+        const response = await DataService.getWaveData();
+        if (response.status === 200) {
+          this.waveData = {
+            data: response.data,
+            statistics: response.statistics,
+            metadata: response.metadata
+          };
+          console.log(`Datos de oleaje cargados: ${response.data.length} puntos`);
+          console.log('Estadísticas de oleaje:', response.statistics);
+
+          // Crear gráfico de oleaje
+          this.$nextTick(() => {
+            this.createWaveChart();
+          });
+        }
+      } catch (error) {
+        console.error('Error al cargar datos de oleaje:', error);
+      }
+    },
+
+    async loadCurrentData() {
+      try {
+        const response = await DataService.getCurrentData();
+        if (response.status === 200) {
+          this.realCurrentData = {
+            data: response.data,
+            statistics: response.statistics,
+            metadata: response.metadata
+          };
+          console.log(`Datos de corrientes cargados: ${response.data.length} puntos`);
+          console.log('Estadísticas de corrientes:', response.statistics);
+        }
+      } catch (error) {
+        console.error('Error al cargar datos de corrientes:', error);
+      }
+    },
+
+    async loadTemperatureData() {
+      try {
+        const response = await DataService.getTemperatureData();
+        if (response.status === 200) {
+          this.realTemperatureData = {
+            data: response.data,
+            statistics: response.statistics,
+            metadata: response.metadata
+          };
+          console.log(`Datos de temperatura cargados: ${response.data.length} puntos`);
+          console.log('Estadísticas de temperatura:', response.statistics);
+        }
+      } catch (error) {
+        console.error('Error al cargar datos de temperatura:', error);
+      }
+    },
+
+    createWaveChart() {
+      if (!this.waveData || !this.waveData.data || this.waveData.data.length === 0) {
+        return;
+      }
+
+      // Agrupar datos por timestamp y calcular promedio por hora/día
+      const groupedData = {};
+      this.waveData.data.forEach(point => {
+        const timestamp = point.timestamp;
+        if (!groupedData[timestamp]) {
+          groupedData[timestamp] = {
+            values: [],
+            timestamp: timestamp
+          };
+        }
+        groupedData[timestamp].values.push(point.value);
+      });
+
+      // Calcular promedios y preparar datos para el gráfico
+      const chartData = Object.values(groupedData)
+        .map(group => ({
+          timestamp: new Date(group.timestamp),
+          avgValue: group.values.reduce((a, b) => a + b, 0) / group.values.length,
+          minValue: Math.min(...group.values),
+          maxValue: Math.max(...group.values)
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      // Crear dataset
+      const labels = chartData.map(d => d.timestamp.toLocaleString('es-ES', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit'
+      }));
+
+      const avgData = chartData.map(d => d.avgValue);
+      const minData = chartData.map(d => d.minValue);
+      const maxData = chartData.map(d => d.maxValue);
+
+      // Destruir gráfico anterior si existe
+      if (this.waveChart) {
+        this.waveChart.destroy();
+      }
+
+      // Crear nuevo gráfico
+      const ctx = this.$refs.waveChart.getContext('2d');
+      this.waveChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Altura Promedio (m)',
+              data: avgData,
+              borderColor: '#0ea5e9',
+              backgroundColor: 'rgba(14, 165, 233, 0.1)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.4,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            },
+            {
+              label: 'Altura Máxima (m)',
+              data: maxData,
+              borderColor: '#ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.05)',
+              borderWidth: 1.5,
+              borderDash: [5, 5],
+              fill: false,
+              tension: 0.4,
+              pointRadius: 2,
+              pointHoverRadius: 4
+            },
+            {
+              label: 'Altura Mínima (m)',
+              data: minData,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.05)',
+              borderWidth: 1.5,
+              borderDash: [5, 5],
+              fill: false,
+              tension: 0.4,
+              pointRadius: 2,
+              pointHoverRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleFont: { size: 13 },
+              bodyFont: { size: 12 },
+              padding: 12,
+              callbacks: {
+                label: function(context) {
+                  let label = context.dataset.label || '';
+                  if (label) {
+                    label += ': ';
+                  }
+                  label += context.parsed.y.toFixed(2) + ' m';
+
+                  // Agregar nivel de riesgo
+                  const value = context.parsed.y;
+                  let risk = '';
+                  if (value < 1.0) risk = ' (Bajo)';
+                  else if (value < 2.2) risk = ' (Moderado)';
+                  else if (value < 4.0) risk = ' (Alto)';
+                  else if (value < 6.0) risk = ' (Muy Alto)';
+                  else risk = ' (Extremo)';
+
+                  return label + risk;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Altura de Ola (metros)'
+              },
+              ticks: {
+                callback: function(value) {
+                  return value.toFixed(1) + ' m';
+                }
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Tiempo'
+              },
+              grid: {
+                display: false
+              },
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45
+              }
+            }
+          }
+        }
+      });
+    },
+
     addFarmsToMap() {
       this.markersLayer.clearLayers();
-      
-      this.piscifactorias.forEach(farm => {
+
+      this.piscifactorias.forEach((farm, index) => {
         if (farm.coordinates && farm.coordinates.length === 2) {
-          const marker = L.marker(farm.coordinates, {
-            title: farm.name,
-            riseOnHover: true
+          const isSelected = this.selectedFarmId === farm.id;
+
+          // Crear icono personalizado simple
+          const icon = L.divIcon({
+            className: 'custom-marker',
+            html: `<div class="marker-container ${isSelected ? 'marker-selected' : ''}">
+                     <div class="marker-dot"></div>
+                   </div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+            popupAnchor: [0, -8]
           });
-          
+
+          const marker = L.marker(farm.coordinates, {
+            icon: icon,
+            title: farm.name
+          });
+
           marker.bindTooltip(farm.name, {
             permanent: false,
             direction: 'top',
-            className: 'farm-tooltip'
+            offset: [0, -50],
+            className: 'custom-tooltip'
           });
-          
+
           marker.on('click', () => {
             this.selectedFarmId = farm.id;
             this.onFarmChange();
           });
-          
+
           this.markersLayer.addLayer(marker);
         }
       });
     },
-    
-    async loadMapLayers() {
-      if (!this.map) {
-        console.warn("Mapa no inicializado, no se pueden cargar capas");
-        return;
-      }
 
-      this.clearMapLayers();
-
-      console.log("Cargando capas de datos para el mapa...");
-
-      try {
-        await this.loadCorrientesData();
-        console.log("Datos de corrientes cargados:", this.corrientesData.length, "puntos");
-
-        await this.loadTemperatureData();
-        console.log("Datos de temperatura cargados:", this.temperatureData.length, "puntos");
-
-        await this.loadRiskData();
-        console.log("Datos de riesgo cargados:", this.riskData.length, "puntos");
-
-        console.log("Inicializando capas de datos...");
-        this.initializeLayers();
-
-        console.log("Capas del mapa cargadas correctamente");
-      } catch (error) {
-        console.error("Error al cargar capas de datos:", error);
-      }
+    highlightSelectedFarm(farmId) {
+      // Redibujar marcadores para actualizar el resaltado
+      this.addFarmsToMap();
     },
-    
-    async loadCorrientesData() {
-      // Solo cargar si es necesario y no tenemos datos ya
-      if (this.corrientesData.length > 0) return;
-      
-      try {
-        // Obtener la última fecha disponible
-        const today = new Date();
-        const formattedDate = today.toISOString().split('T')[0];
-        
-        // Intentar cargar datos de corrientes (componentes uo y vo)
-        const uoResponse = await DataService.getDatosAmbientales({
-          fecha: formattedDate,
-          variable: 'uo'
-        });
-        
-        const voResponse = await DataService.getDatosAmbientales({
-          fecha: formattedDate,
-          variable: 'vo'
-        });
-        
-        if (uoResponse.status === 200 && voResponse.status === 200) {
-          const uoData = uoResponse.data.datos || [];
-          const voData = voResponse.data.datos || [];
-          
-          // Combinar datos de uo y vo para crear vectores de corriente
-          if (uoData.length > 0 && voData.length > 0) {
-            // Crear un mapa para combinar fácilmente por coordenadas
-            const corrientesMap = new Map();
-            
-            // Procesar datos uo
-            uoData.forEach(item => {
-              if (item.geometria && item.valor !== null) {
-                const key = `${item.geometria.coordinates[0]},${item.geometria.coordinates[1]}`;
-                corrientesMap.set(key, {
-                  lon: item.geometria.coordinates[0],
-                  lat: item.geometria.coordinates[1],
-                  u: parseFloat(item.valor) || 0,
-                  v: 0
-                });
-              }
-            });
-            
-            // Procesar datos vo y combinar con uo
-            voData.forEach(item => {
-              if (item.geometria && item.valor !== null) {
-                const key = `${item.geometria.coordinates[0]},${item.geometria.coordinates[1]}`;
-                if (corrientesMap.has(key)) {
-                  const corrienteItem = corrientesMap.get(key);
-                  corrienteItem.v = parseFloat(item.valor) || 0;
-                } else {
-                  corrientesMap.set(key, {
-                    lon: item.geometria.coordinates[0],
-                    lat: item.geometria.coordinates[1],
-                    u: 0,
-                    v: parseFloat(item.valor) || 0
-                  });
-                }
-              }
-            });
-            
-            // Convertir el mapa a array
-            this.corrientesData = Array.from(corrientesMap.values());
-            
-            // Realizar un muestreo para reducir la cantidad de flechas si hay demasiadas
-            if (this.corrientesData.length > 200) {
-              const step = Math.ceil(this.corrientesData.length / 200);
-              this.corrientesData = this.corrientesData.filter((_, index) => index % step === 0);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error al cargar datos de corrientes:', error);
-        this.corrientesData = [];
-      }
-    },
-    
-    async loadTemperatureData() {
-      if (this.temperatureData.length > 0) return;
 
-      console.log("Cargando datos de temperatura...");
-
-      try {
-        const today = new Date();
-        const formattedDate = today.toISOString().split('T')[0];
-        const tempVariables = ['temperatura', 'temperature', 'temp', 'sst'];
-        let dataLoaded = false;
-
-        for (const variable of tempVariables) {
-          if (dataLoaded) break;
-
-          try {
-            console.log(`Intentando cargar datos de: ${variable}`);
-            const response = await DataService.getDatosAmbientales({
-              fecha: formattedDate,
-              variable
-            });
-
-            if (response.status === 200 && response.data && response.data.datos) {
-              console.log(`Datos obtenidos para ${variable}:`, response.data.datos.length);
-
-              const validData = response.data.datos
-                .filter(item => item.geometria && item.valor !== null && !isNaN(item.valor))
-                .map(item => {
-                  let coords;
-                  if (typeof item.geometria === 'string') {
-                    try {
-                      coords = JSON.parse(item.geometria).coordinates;
-                    } catch (e) {
-                      console.warn("No se pudo analizar geometría:", item.geometria);
-                      return null;
-                    }
-                  } else if (item.geometria && item.geometria.coordinates) {
-                    coords = item.geometria.coordinates;
-                  } else if (item.lng && item.lat) {
-                    coords = [item.lng, item.lat];
-                  } else if (item.geometria && item.geometria.lat && item.geometria.lng) {
-                    coords = [item.geometria.lng, item.geometria.lat];
-                  } else {
-                    return null;
-                  }
-
-                  return {
-                    lat: coords[1],
-                    lng: coords[0],
-                    value: parseFloat(item.valor)
-                  };
-                })
-                .filter(item => item !== null);
-
-              if (validData.length > 0) {
-                this.temperatureData = validData;
-                dataLoaded = true;
-                console.log(`Datos válidos cargados: ${validData.length} puntos`);
-              }
-            }
-          } catch (error) {
-            console.warn(`Error al cargar ${variable}:`, error);
-          }
-        }
-
-        if (!dataLoaded) {
-          console.warn("No se pudieron cargar datos.");
-        }
-      } catch (error) {
-        console.error('Error general al cargar datos de temperatura:', error);
-      }
-    },
-    
-    async loadRiskData() {
-      // Solo cargar si es necesario
-      if (this.riskData.length > 0) return;
-      
-      try {
-        // Obtener predicciones de riesgo de escape (7 días)
-        const response = await DataService.getRiesgoPrediccion(this.selectedFarmId);
-        
-        if (response.status === 200 && response.data && response.data.predicciones && response.data.predicciones.length > 0) {
-          // Guardar las predicciones para la línea de tiempo
-          this.riskPredictionDays = response.data.predicciones;
-          
-          // Inicialmente mostrar el primer día
-          this.currentTimelineIndex = 0;
-          
-          // Transformar los datos para el heatmap
-          this.updateRiskDataForDay(0);
-        } else {
-          logger.warn("No se encontraron predicciones de riesgo");
-        }
-      } catch (error) {
-        console.error('Error al cargar datos de predicción de riesgo:', error);
-      }
-    },
-    
-    
-    updateRiskDataForDay(dayIndex) {
-      // Actualiza los datos de riesgo según el día seleccionado
-      if (!this.riskPredictionDays[dayIndex]) return;
-      
-      // Obtener valor de riesgo para este día
-      const riskValue = this.riskPredictionDays[dayIndex].indice;
-      
-      // Crear datos para heatmap basados en las piscifactorias
-      this.riskData = this.piscifactorias
-        .filter(farm => farm.coordinates && farm.coordinates.length === 2)
-        .map(farm => {
-          // Variar un poco el riesgo para cada piscifactoría
-          const farmRisk = Math.min(10, Math.max(1, riskValue + (Math.random() - 0.5) * 2));
-          
-          return {
-            lat: farm.coordinates[1],
-            lng: farm.coordinates[0],
-            value: farmRisk
-          };
-        });
-      
-      // Actualizar la capa de riesgo si ya existe
-      if (this.riskLayer && this.showRiskLayer) {
-        // Eliminar capa anterior
-        if (this.map.hasLayer(this.riskLayer)) {
-          this.map.removeLayer(this.riskLayer);
-        }
-        
-        // Crear nueva capa
-        this.riskLayer = this.createRiskHeatLayer();
-        
-        // Añadir al mapa si está activa
-        if (this.showRiskLayer) {
-          this.riskLayer.addTo(this.map);
-        }
-      }
-    },
-    
-    initializeLayers() {
-      // Inicializar capa de corrientes (vectores/flechas)
-      if (this.corrientesData.length > 0) {
-        this.createArrowsLayer();
-      }
-      
-      // Inicializar capa de temperatura (heatmap)
-      if (this.temperatureData.length > 0) {
-        this.temperatureLayer = this.createTemperatureHeatLayer();
-      }
-      
-      // Inicializar capa de riesgo (heatmap)
-      if (this.riskData.length > 0) {
-        this.riskLayer = this.createRiskHeatLayer();
-      }
-    },
-    
-    createTemperatureHeatLayer() {
-        // Validación inicial de datos
-        if (!this.temperatureData || this.temperatureData.length === 0) {
-          console.warn("No hay datos de temperatura disponibles para crear el mapa de calor");
-          return null;
-        }
-
-        console.log(`Procesando ${this.temperatureData.length} puntos de datos para el mapa de calor de temperatura`);
-
-        // Preprocesamiento de datos más robusto
-        const points = this.temperatureData
-          .map(item => {
-            // Conversión y validación estricta
-            const lat = parseFloat(item.lat);
-            const lng = parseFloat(item.lng);
-            const value = parseFloat(item.value);
-
-            if (isNaN(lat) || isNaN(lng) || isNaN(value) || 
-                lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-              console.warn("Punto inválido descartado:", item);
-              return null;
-            }
-
-            // Aplicar normalización para valores extremos si es necesario
-            const normalizedValue = Math.min(Math.max(value, 5), 35); // Limitar entre 5°C y 35°C
-            return [lat, lng, normalizedValue];
-          })
-          .filter(point => point !== null);
-
-        // Verificación secundaria de datos
-        if (points.length === 0) {
-          console.warn("No se pudieron obtener puntos válidos para el mapa de calor");
-          return null;
-        } else if (points.length < this.temperatureData.length * 0.5) {
-          // Advertencia si más del 50% de los puntos fueron descartados
-          console.warn(`Atención: Solo ${points.length} de ${this.temperatureData.length} puntos son válidos`);
-        }
-
-        try {
-          // Configuración optimizada para mejor visualización
-          const heatLayer = L.heatLayer(points, {
-            radius: 35,      // Radio de influencia de cada punto
-            blur: 20,        // Nivel de difuminado para suavizar la visualización
-            maxZoom: 10,     // Nivel de zoom máximo para renderizar el heatmap
-            max: 30,         // Valor máximo para la escala (temperaturas altas)
-            minOpacity: 0.4, // Opacidad mínima para mejorar visibilidad
-            gradient: {      // Gradiente de color mejorado para mejor percepción
-              0.3: '#1E5DB4', // Azul oscuro (temperaturas más bajas)
-              0.4: '#45A3E5', // Azul claro
-              0.5: '#5BC8AF', // Cyan verdoso
-              0.6: '#90EB5D', // Verde lima
-              0.7: '#F1DA38', // Amarillo
-              0.8: '#F87D2B', // Naranja
-              0.9: '#EB3323', // Rojo
-              1.0: '#BD1410'  // Rojo oscuro (temperaturas más altas)
-            }
-          });
-
-          console.log(`Mapa de calor de temperatura creado con éxito (${points.length} puntos)`);
-          return heatLayer;
-        } catch (error) {
-          console.error("Error al crear el mapa de calor de temperatura:", error);
-          // Proporcionar más contexto para ayudar en depuración
-          console.error("Verificar disponibilidad de la biblioteca L.heatLayer y formato de los datos");
-          return null;
-        }
-      },
-    
-    createRiskHeatLayer() {
-      // Crear capa de riesgo con parámetros mejorados
-      return L.heatLayer(
-        this.riskData.map(item => [item.lat, item.lng, item.value]),
-        {
-          radius: 50,  // Más grande para enfatizar
-          blur: 30,    // Mayor difuminado
-          maxZoom: 10,
-          max: 10,     // Valor máximo para la escala
-          minOpacity: 0.6, // Mayor opacidad mínima
-          gradient: {
-            0.4: 'green',
-            0.6: 'yellow',
-            0.8: 'orange',
-            1.0: 'red'
-          }
-        }
-      );
-    },
-    
-    createArrowsLayer() {
-      // Crear un SVG icon para las flechas de corriente
-      const createCurrentArrow = (angle, magnitude) => {
-        const size = Math.min(15 + magnitude * 10, 35); // Tamaño basado en la magnitud (aumentado)
-        
-        // Crear un ícono SVG para representar la flecha
-        return L.divIcon({
-          html: `<svg width="${size}" height="${size}" viewBox="0 0 50 50">
-            <polygon points="0,20 40,20 40,10 50,25 40,40 40,30 0,30"
-                     transform="rotate(${angle}, 25, 25)"
-                     fill="#4a6bff" stroke="#000" stroke-width="1" />
-          </svg>`,
-          className: 'current-arrow-icon',
-          iconSize: [size, size],
-          iconAnchor: [size/2, size/2]
-        });
-      };
-      
-      // Crear capa de marcadores para las flechas
-      if (this.arrowsLayer) {
-        this.map.removeLayer(this.arrowsLayer);
-      }
-      
-      this.arrowsLayer = L.layerGroup();
-      
-      // Añadir marcadores con flechas para cada punto de datos
-      this.corrientesData.forEach(point => {
-        // Calcular ángulo y magnitud
-        const angle = (Math.atan2(point.v, point.u) * 180 / Math.PI);
-        const magnitude = Math.sqrt(point.u * point.u + point.v * point.v);
-        
-        if (magnitude > 0.01) { // Solo mostrar flechas para corrientes significativas
-          const marker = L.marker([point.lat, point.lon], {
-            icon: createCurrentArrow(angle, magnitude),
-            interactive: false // No interactivo para mejorar rendimiento
-          });
-          
-          this.arrowsLayer.addLayer(marker);
-        }
-      });
-    },
-    
-    updateLayers() {
-      this.clearVisibleLayers();
-
-      if (this.showCorrientsLayer && this.arrowsLayer) {
-        console.log("Mostrando capa de corrientes");
-        this.arrowsLayer.addTo(this.map);
-      }
-
-      if (this.showTemperatureLayer) {
-        console.log("Mostrando capa de temperatura");
-
-        // Recrear la capa si no existe o si está vacía
-        if (!this.temperatureLayer || !this.map.hasLayer(this.temperatureLayer)) {
-          console.log("Recreando capa de temperatura...");
-          this.temperatureLayer = this.createTemperatureHeatLayer();
-        }
-
-        if (this.temperatureLayer) {
-          console.log("Añadiendo capa de temperatura al mapa");
-          this.temperatureLayer.addTo(this.map);
-
-          // Forzar redibujado del mapa
-          this.map.invalidateSize();
-        } else {
-          console.warn("No se puede mostrar capa de temperatura: layer no inicializado");
-        }
-      }
-
-
-      if (this.showRiskLayer) {
-        console.log("Mostrando capa de riesgo");
-
-        if (!this.riskLayer && this.riskData.length > 0) {
-          this.riskLayer = this.createRiskHeatLayer();
-        }
-
-        if (this.riskLayer) {
-          this.riskLayer.addTo(this.map);
-        } else {
-          console.warn("No se puede mostrar capa de riesgo: layer no inicializado");
-        }
-      }
-    },
-    
-    clearVisibleLayers() {
-      // Eliminar capas visibles pero mantener la estructura
-      if (this.arrowsLayer && this.map.hasLayer(this.arrowsLayer)) {
-        this.map.removeLayer(this.arrowsLayer);
-      }
-      
-      if (this.temperatureLayer && this.map.hasLayer(this.temperatureLayer)) {
-        this.map.removeLayer(this.temperatureLayer);
-      }
-      
-      if (this.riskLayer && this.map.hasLayer(this.riskLayer)) {
-        this.map.removeLayer(this.riskLayer);
-      }
-    },
-    
-    clearMapLayers() {
-      // Limpia completamente las capas y sus datos
-      this.clearVisibleLayers();
-      
-      this.arrowsLayer = null;
-      this.temperatureLayer = null;
-      this.riskLayer = null;
-    },
-    
-    // Métodos para la línea de tiempo
-    playPauseTimeline() {
-      if (this.isTimelinePlaying) {
-        this.stopTimeline();
-      } else {
-        this.startTimeline();
-      }
-    },
-    
-    startTimeline() {
-      if (!this.riskPredictionDays.length) return;
-      
-      this.isTimelinePlaying = true;
-      // Avanzar la línea de tiempo cada 1.5 segundos
-      this.timelineInterval = setInterval(() => {
-        this.currentTimelineIndex = (this.currentTimelineIndex + 1) % this.riskPredictionDays.length;
-        this.updateRiskDataForDay(this.currentTimelineIndex);
-      }, 1500);
-    },
-    
-    stopTimeline() {
-      if (this.timelineInterval) {
-        clearInterval(this.timelineInterval);
-        this.timelineInterval = null;
-      }
-      this.isTimelinePlaying = false;
-    },
-    
-    resetTimeline() {
-      this.stopTimeline();
-      this.currentTimelineIndex = 0;
-      this.updateRiskDataForDay(0);
-    },
-    
-    onTimelineSliderChange() {
-      // Detener la reproducción automática si está activa
-      if (this.isTimelinePlaying) {
-        this.stopTimeline();
-      }
-      
-      // Actualizar los datos según el día seleccionado
-      this.updateRiskDataForDay(this.currentTimelineIndex);
-    },
-    
     async onFarmChange() {
       this.loading = true;
-      
+
       if (this.selectedFarmId) {
         try {
-          // Obtener datos de la piscifactoría seleccionada
+          // Primero resaltar el marcador
+          this.highlightSelectedFarm(this.selectedFarmId);
+
           const response = await DataService.getPiscifactoria(this.selectedFarmId);
-          
+
           if (response.status === 200 && response.data) {
-            this.selectedFarmStats = response.data.stats || {};
-            
-            // Centrar mapa en la piscifactoría seleccionada
             if (response.data.coordinates && response.data.coordinates.length === 2) {
-              this.map.setView(response.data.coordinates, 10);
-              
-              // Si tiene geometría de área, mostrarla en el mapa
-              if (response.data.area_geometry) {
-                this.showFarmArea(response.data.area_geometry);
-              }
+              // Hacer zoom y focus en la piscifactoría seleccionada con animación
+              console.log('Haciendo focus en:', response.data.name, response.data.coordinates);
+              this.map.flyTo(response.data.coordinates, 12, {
+                duration: 2,
+                easeLinearity: 0.25
+              });
             }
-            
-            // Cargar datos específicos para esta piscifactoría
-            document.title = `GlorIA - ${response.data.name}`;
-            
-            // Cargar alertas y datos históricos
+
             await Promise.all([
               this.loadAlertas(this.selectedFarmId),
-              this.loadHistoricalData(),
-              this.loadVariableData()
+              this.loadHistoricalData()
             ]);
-            
-            // Calcular nivel de riesgo
-            this.calculateRiskLevel();
 
-            // Cargar datos de predicciones de escape
-            await this.loadEscapePrediction(this.selectedFarmId);
+            this.calculateRiskLevel();
           }
         } catch (error) {
-          console.error('Error al cargar detalles de piscifactoría:', error);
-          this.selectedFarmStats = null;
+          console.error('Error al cargar piscifactoría:', error);
         }
       } else {
-        // Resetear datos
-        document.title = "GlorIA - Monitoreo de Piscifactorías";
-        this.selectedFarmStats = null;
+        // Restablecer vista general
+        this.highlightSelectedFarm(null);
         this.alertas = [];
-        this.tempData = [];
-        this.currentData = [];
-        this.variableData = {};
-        
-        // Resetear gráficos
-        if (this.tempChart) {
-          this.tempChart.destroy();
-          this.tempChart = null;
-        }
-        
-        if (this.currentChart) {
-          this.currentChart.destroy();
-          this.currentChart = null;
-        }
-        
-        // Ajustar vista para mostrar todas las piscifactorías
+        this.riskLevel = 30;
+
         const bounds = this.getBoundsFarms();
         if (bounds) {
-          this.map.fitBounds(bounds);
+          this.map.flyToBounds(bounds, {
+            duration: 1.5,
+            padding: [50, 50]
+          });
         }
-        
-        // Limpiar capas específicas de piscifactoría
-        this.clearFarmLayers();
-        
-        // Establecer nivel de riesgo predeterminado
-        this.riskLevel = 30;
-        this.escapeProbability = 0;
-        this.escapeProbabilityText = 'Sin datos suficientes para calcular';
-        this.riskLastUpdated = null;
-        
-        // Cargar alertas generales
-        await this.loadAlertas();
+
+        // Cargar datos incluso sin selección (usará la primera piscifactoría)
+        await Promise.all([
+          this.loadAlertas(),
+          this.loadHistoricalData()
+        ]);
       }
-      
-      // Cargar datos ambientales para el mapa
-      await this.loadEnvironmentalData();
-      
-      // Refrescar las capas del mapa cuando cambie la piscifactoría seleccionada
-      await this.loadMapLayers();
-      
+
       this.loading = false;
     },
-    
-    async loadEscapePrediction(piscifactoriaId) {
-      try {
-        const response = await DataService.getEscapePrediction(piscifactoriaId);
-        
-        if (response.status === 200 && response.data) {
-          const prediccion = response.data;
-          
-          // Actualizar nivel de riesgo
-          if (prediccion.riesgo && prediccion.riesgo.porcentaje !== undefined) {
-            this.riskLevel = prediccion.riesgo.porcentaje;
-          } else if (prediccion.riesgo && prediccion.riesgo.indice !== undefined) {
-            // Convertir índice (0-10) a porcentaje (0-100)
-            this.riskLevel = Math.min(100, Math.round(prediccion.riesgo.indice * 100));
-          }
-          
-          // Actualizar probabilidad de escape
-          if (prediccion.riesgo && prediccion.riesgo.probabilidad !== undefined) {
-            this.escapeProbability = Math.round(prediccion.riesgo.probabilidad * 100);
-            
-            // Actualizar texto descriptivo basado en la probabilidad
-            if (this.escapeProbability < 10) {
-              this.escapeProbabilityText = 'Muy baja probabilidad de escape en las condiciones actuales';
-            } else if (this.escapeProbability < 30) {
-              this.escapeProbabilityText = 'Probabilidad baja. Mantener vigilancia normal';
-            } else if (this.escapeProbability < 50) {
-              this.escapeProbabilityText = 'Probabilidad media. Se recomienda comprobar sistemas de anclaje';
-            } else if (this.escapeProbability < 70) {
-              this.escapeProbabilityText = 'Probabilidad alta. Revisar y reforzar jaulas y estructuras';
-            } else {
-              this.escapeProbabilityText = 'Probabilidad muy alta. Acción inmediata requerida';
-            }
-          }
-          
-          // Actualizar fecha de última actualización
-          if (prediccion.fecha_actualizacion) {
-            const fecha = new Date(prediccion.fecha_actualizacion);
-            this.riskLastUpdated = fecha.toLocaleDateString('es-ES', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-          }
-          
-          // Añadir al historial
-          const now = new Date();
-          this.riskHistory.push({
-            date: now,
-            value: this.riskLevel
-          });
-          
-          // Limitar historial a 30 días
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          this.riskHistory = this.riskHistory.filter(entry => 
-            new Date(entry.date) >= thirtyDaysAgo
-          );
-          
-          // Actualizar gráfica
-          this.updateRiskChart();
-          
-          console.log('Datos de predicción cargados:', prediccion);
-          return true;
-        }
-      } catch (error) {
-        console.error('Error al cargar predicción de escape:', error);
-        
-        // Intentar cargar datos por el endpoint antiguo como fallback
-        await this.calculateRiskLevel();
-      }
-      
-      return false;
-    },
-    
+
     onDateChange() {
       this.loadHistoricalData();
     },
-    
+
+    setDateRange(days) {
+      this.activePeriod = days;
+
+      const end = new Date();
+      const start = new Date();
+
+      if (days === 1) {
+        // Para 24 horas, restar 1 día
+        start.setDate(end.getDate() - 1);
+      } else {
+        // Para otros períodos
+        start.setDate(end.getDate() - days);
+      }
+
+      this.endDate = end.toISOString().split('T')[0];
+      this.startDate = start.toISOString().split('T')[0];
+
+      console.log(`Período cambiado a ${days} días: desde ${this.startDate} hasta ${this.endDate}`);
+
+      // Recargar todos los datos con el nuevo período
+      this.loadHistoricalData();
+    },
+
     getBoundsFarms() {
       if (this.piscifactorias.length === 0) return null;
-      
+
       const points = this.piscifactorias
         .filter(farm => farm.coordinates && farm.coordinates.length === 2)
         .map(farm => farm.coordinates);
-      
+
       if (points.length === 0) return null;
-      
+
       return L.latLngBounds(points);
     },
-    
-    showFarmArea(areaGeometry) {
-      if (this.farmAreaLayer) {
-        this.map.removeLayer(this.farmAreaLayer);
-      }
-      
-      try {
-        const geojson = typeof areaGeometry === 'string' ? JSON.parse(areaGeometry) : areaGeometry;
-        this.farmAreaLayer = L.geoJSON(geojson, {
-          style: {
-            color: '#4a6bff',
-            weight: 2,
-            opacity: 0.7,
-            fillColor: '#4a6bff',
-            fillOpacity: 0.1
-          }
-        }).addTo(this.map);
-      } catch (error) {
-        console.error('Error al mostrar área de la piscifactoría:', error);
-      }
-    },
-    
-    clearFarmLayers() {
-      if (this.farmAreaLayer) {
-        this.map.removeLayer(this.farmAreaLayer);
-        this.farmAreaLayer = null;
-      }
-    },
-    
+
     async loadAlertas(farmId) {
       try {
         const response = await DataService.getAlertas(farmId);
@@ -1164,181 +714,91 @@ export default {
         this.alertas = [];
       }
     },
-    
-    async loadEnvironmentalData() {
-      try {
-        const fecha = new Date().toISOString().split('T')[0];
-        let variable = 'temperatura';
-        
-        // Intentar usar variables presentes en la base de datos
-        if (this.selectedFarmId) {
-          // Si hay una piscifactoría seleccionada, podemos intentar cargar datos más específicos
-          const variables = ['temperatura', 'temperature', 'temp'];
-          
-          // Intentar con diferentes nombres de variables
-          for (const v of variables) {
-            const params = {
-              fecha,
-              variable: v,
-              piscifactoriaId: this.selectedFarmId
-            };
-            
-            const response = await DataService.getDatosAmbientales(params);
-            if (response.status === 200 && response.data.datos && response.data.datos.length > 0) {
-              variable = v;
-              this.environmentalData = response.data.datos;
-              break;
-            }
-          }
-        } else {
-          // Si no hay piscifactoría seleccionada, cargar datos generales
-          const params = {
-            fecha,
-            variable: 'temperatura'
-          };
-          
-          const response = await DataService.getDatosAmbientales(params);
-          if (response.status === 200 && response.data.datos) {
-            this.environmentalData = response.data.datos;
-          }
-        }
-      } catch (error) {
-        console.error('Error al cargar datos ambientales:', error);
-        this.environmentalData = [];
-      }
-    },
-    
+
     async loadHistoricalData() {
-      if (!this.selectedFarmId) return;
-      
+      // Si no hay piscifactoría seleccionada, usar la primera disponible
+      const farmId = this.selectedFarmId || (this.piscifactorias.length > 0 ? this.piscifactorias[0].id : null);
+
+      if (!farmId) {
+        console.log('No hay piscifactorías disponibles para cargar datos');
+        return;
+      }
+
       try {
-        // Obtener fechas del rango
-        const fechaInicio = this.dateRange.start.toISOString().split('T')[0];
-        const fechaFin = this.dateRange.end.toISOString().split('T')[0];
-        
-        // Cargar datos históricos de temperatura (intentar con diferentes nombres)
-        const tempVariables = ['temperatura', 'temperature', 'temp'];
-        let tempDataLoaded = false;
-        
-        for (const variable of tempVariables) {
-          if (tempDataLoaded) break;
-          
-          const tempResponse = await DataService.getDatosHistoricos(variable, {
+        const fechaInicio = this.startDate;
+        const fechaFin = this.endDate;
+
+        console.log(`Cargando datos históricos para piscifactoría ${farmId} desde ${fechaInicio} hasta ${fechaFin}`);
+
+        // Usar datos reales de temperatura del JSON en lugar de datos simulados
+        if (this.realTemperatureData && this.realTemperatureData.data) {
+          console.log(`Usando datos reales de temperatura del JSON (${this.realTemperatureData.data.length} puntos)`);
+
+          // Filtrar datos por rango de fechas
+          const startDate = new Date(fechaInicio);
+          const endDate = new Date(fechaFin);
+
+          const filteredData = this.realTemperatureData.data.filter(point => {
+            const pointDate = new Date(point.timestamp);
+            return pointDate >= startDate && pointDate <= endDate;
+          });
+
+          // Si no hay datos en el rango, usar TODOS los datos disponibles en lugar de caer a datos simulados
+          const dataToUse = filteredData.length > 0 ? filteredData : this.realTemperatureData.data;
+
+          // Convertir al formato esperado por el gráfico
+          this.tempData = dataToUse.map(point => ({
+            fecha: point.timestamp,
+            valor: point.value
+          }));
+
+          console.log(`Datos de temperatura ${filteredData.length > 0 ? 'filtrados' : 'completos (sin filtrar)'}: ${this.tempData.length} registros`);
+          this.updateTempChart();
+        } else {
+          console.log('No hay datos reales de temperatura disponibles, usando datos simulados');
+          const tempResponse = await DataService.getDatosHistoricos('temperatura', {
             fechaInicio,
             fechaFin,
-            piscifactoriaId: this.selectedFarmId
+            piscifactoriaId: farmId
           });
-          
-          if (tempResponse.status === 200 && tempResponse.data.datos && tempResponse.data.datos.length > 0) {
+
+          if (tempResponse.status === 200 && tempResponse.data.datos) {
+            console.log(`Datos de temperatura recibidos: ${tempResponse.data.datos.length} registros`);
             this.tempData = tempResponse.data.datos;
-            tempDataLoaded = true;
             this.updateTempChart();
           }
         }
-        
-        // Si no se cargaron datos de temperatura, intentar con otras variables ambientales
-        if (!tempDataLoaded) {
-          console.log("No se encontraron datos de temperatura, intentando con otras variables");
-          
-          // Variables alternativas para temperatura (por ejemplo, sensación térmica)
-          const altTempVariables = ['temperatura_agua', 'temp_feel'];
-          
-          for (const variable of altTempVariables) {
-            if (tempDataLoaded) break;
-            
-            const tempResponse = await DataService.getDatosHistoricos(variable, {
-              fechaInicio,
-              fechaFin,
-              piscifactoriaId: this.selectedFarmId
-            });
-            
-            if (tempResponse.status === 200 && tempResponse.data.datos && tempResponse.data.datos.length > 0) {
-              this.tempData = tempResponse.data.datos;
-              tempDataLoaded = true;
-              this.updateTempChart();
-            }
-          }
-        }
-        
-        // Cargar datos históricos de corrientes (intentar con diferentes nombres)
-        const currentVariables = ['uo', 'vo', 'current', 'currents', 'velocidad_corriente'];
-        let currentDataLoaded = false;
-        
-        for (const variable of currentVariables) {
-          if (currentDataLoaded) break;
-          
-          const currentResponse = await DataService.getDatosHistoricos(variable, {
-            fechaInicio,
-            fechaFin,
-            piscifactoriaId: this.selectedFarmId
-          });
-          
-          if (currentResponse.status === 200 && currentResponse.data.datos && currentResponse.data.datos.length > 0) {
-            this.currentData = currentResponse.data.datos;
-            currentDataLoaded = true;
-            this.updateCurrentChart();
-          }
+
+        const currentResponse = await DataService.getDatosHistoricos('corrientes', {
+          fechaInicio,
+          fechaFin,
+          piscifactoriaId: farmId
+        });
+
+        if (currentResponse.status === 200 && currentResponse.data.datos) {
+          console.log(`Datos de corrientes recibidos: ${currentResponse.data.datos.length} registros`);
+          this.currentData = currentResponse.data.datos;
+          this.updateCurrentChart();
         }
       } catch (error) {
         console.error('Error al cargar datos históricos:', error);
-        this.tempData = [];
-        this.currentData = [];
       }
     },
-    
-    async loadVariableData() {
-      if (!this.selectedFarmId) return;
-      
-      this.variableData = {};
-      
-      // Lista de variables a cargar
-      const variables = ['so', 'ph', 'evs', 'pr'];
-      
-      for (const variable of variables) {
-        try {
-          const fechaInicio = this.dateRange.start.toISOString().split('T')[0];
-          const fechaFin = this.dateRange.end.toISOString().split('T')[0];
-          
-          const response = await DataService.getDatosHistoricos(variable, {
-            fechaInicio,
-            fechaFin,
-            piscifactoriaId: this.selectedFarmId
-          });
-          
-          if (response.status === 200 && response.data.datos && response.data.datos.length > 0) {
-            this.variableData[variable] = response.data.datos;
-          }
-        } catch (error) {
-          console.error(`Error al cargar datos de ${variable}:`, error);
-        }
-      }
-    },
-    
+
     updateTempChart() {
-      if (this.tempChart) {
-        this.tempChart.destroy();
-      }
-      
-      if (this.tempData.length === 0 || !this.$refs.tempChart) {
-        return;
-      }
-      
+      if (this.tempChart) this.tempChart.destroy();
+
+      if (this.tempData.length === 0 || !this.$refs.tempChart) return;
+
       const ctx = this.$refs.tempChart.getContext('2d');
-      
-      // Reducir el número de puntos para un gráfico más claro
-      let dataPoints = this.tempData;
-      if (dataPoints.length > 12) {
-        const step = Math.ceil(dataPoints.length / 12);
-        dataPoints = dataPoints.filter((_, index) => index % step === 0);
-      }
-      
-      const labels = dataPoints.map(item => {
+
+      const labels = this.tempData.map(item => {
         const date = new Date(item.fecha);
-        return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
       });
-      
-      const data = dataPoints.map(item => parseFloat(item.valor) || 0);
-      
+
+      const data = this.tempData.map(item => parseFloat(item.valor) || 0);
+
       this.tempChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -1346,20 +806,39 @@ export default {
           datasets: [{
             label: 'Temperatura (°C)',
             data,
-            borderColor: '#e74c3c',
-            backgroundColor: 'rgba(231, 76, 60, 0.2)',
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6, 182, 212, 0.1)',
             tension: 0.4,
-            fill: true
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#06b6d4',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
           plugins: {
             legend: {
               display: false
             },
             tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              padding: 12,
+              titleFont: {
+                size: 14,
+                weight: 'bold'
+              },
+              bodyFont: {
+                size: 13
+              },
               callbacks: {
                 label: function(context) {
                   return `Temperatura: ${context.parsed.y.toFixed(1)}°C`;
@@ -1371,10 +850,11 @@ export default {
             y: {
               beginAtZero: false,
               grid: {
-                color: 'rgba(255, 255, 255, 0.1)'
+                color: '#e5e7eb',
+                drawBorder: false
               },
               ticks: {
-                color: '#ddd',
+                color: '#6b7280',
                 callback: function(value) {
                   return value.toFixed(1) + '°C';
                 }
@@ -1385,7 +865,7 @@ export default {
                 display: false
               },
               ticks: {
-                color: '#ddd',
+                color: '#6b7280',
                 maxRotation: 45,
                 minRotation: 45
               }
@@ -1394,32 +874,21 @@ export default {
         }
       });
     },
-    
+
     updateCurrentChart() {
-      if (this.currentChart) {
-        this.currentChart.destroy();
-      }
-      
-      if (this.currentData.length === 0 || !this.$refs.currentChart) {
-        return;
-      }
-      
+      if (this.currentChart) this.currentChart.destroy();
+
+      if (this.currentData.length === 0 || !this.$refs.currentChart) return;
+
       const ctx = this.$refs.currentChart.getContext('2d');
-      
-      // Reducir el número de puntos para un gráfico más claro
-      let dataPoints = this.currentData;
-      if (dataPoints.length > 12) {
-        const step = Math.ceil(dataPoints.length / 12);
-        dataPoints = dataPoints.filter((_, index) => index % step === 0);
-      }
-      
-      const labels = dataPoints.map(item => {
+
+      const labels = this.currentData.map(item => {
         const date = new Date(item.fecha);
-        return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
       });
-      
-      const data = dataPoints.map(item => Math.abs(parseFloat(item.valor) || 0));
-      
+
+      const data = this.currentData.map(item => Math.abs(parseFloat(item.valor) || 0));
+
       this.currentChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -1427,20 +896,39 @@ export default {
           datasets: [{
             label: 'Corrientes (m/s)',
             data,
-            borderColor: '#3498db',
-            backgroundColor: 'rgba(52, 152, 219, 0.2)',
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
             tension: 0.4,
-            fill: true
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#8b5cf6',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
           plugins: {
             legend: {
               display: false
             },
             tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              padding: 12,
+              titleFont: {
+                size: 14,
+                weight: 'bold'
+              },
+              bodyFont: {
+                size: 13
+              },
               callbacks: {
                 label: function(context) {
                   return `Velocidad: ${context.parsed.y.toFixed(2)} m/s`;
@@ -1452,10 +940,11 @@ export default {
             y: {
               beginAtZero: true,
               grid: {
-                color: 'rgba(255, 255, 255, 0.1)'
+                color: '#e5e7eb',
+                drawBorder: false
               },
               ticks: {
-                color: '#ddd',
+                color: '#6b7280',
                 callback: function(value) {
                   return value.toFixed(2) + ' m/s';
                 }
@@ -1466,7 +955,7 @@ export default {
                 display: false
               },
               ticks: {
-                color: '#ddd',
+                color: '#6b7280',
                 maxRotation: 45,
                 minRotation: 45
               }
@@ -1475,18 +964,13 @@ export default {
         }
       });
     },
-    
+
     refreshData() {
       this.loading = true;
-      
-      // Recargar todos los datos
+
       Promise.all([
-        this.loadEnvironmentalData(),
         this.selectedFarmId ? this.loadAlertas(this.selectedFarmId) : this.loadAlertas(),
-        this.selectedFarmId ? this.loadHistoricalData() : Promise.resolve(),
-        this.selectedFarmId ? this.loadVariableData() : Promise.resolve(),
-        this.loadMapLayers(),
-        this.selectedFarmId ? this.loadEscapePrediction(this.selectedFarmId) : Promise.resolve()
+        this.selectedFarmId ? this.loadHistoricalData() : Promise.resolve()
       ]).then(() => {
         this.loading = false;
       }).catch(error => {
@@ -1494,896 +978,943 @@ export default {
         this.loading = false;
       });
     },
-    
-    getMetricValue(metric) {
-      if (!this.selectedFarmStats) {
-        return 'N/A';
-      }
-      
-      switch (metric) {
-        case 'temperature':
-          if (!this.selectedFarmStats.temperature) return 'N/A';
-          return this.selectedFarmStats.temperature.current !== undefined ? 
-                 this.selectedFarmStats.temperature.current.toFixed(1) : 'N/A';
-        case 'salinity': // Nuevo caso para salinidad en lugar de oxígeno
-          if (!this.selectedFarmStats.salinity) return 'N/A';
-          return this.selectedFarmStats.salinity.current !== undefined ? 
-                 this.selectedFarmStats.salinity.current.toFixed(1) : 'N/A';
-        case 'currents':
-          if (!this.selectedFarmStats.currents) return 'N/A';
-          return this.selectedFarmStats.currents.current !== undefined ? 
-                 this.selectedFarmStats.currents.current.toFixed(2) : 'N/A';
-        default:
-          return 'N/A';
-      }
-    },
-    
-    getMetricStatusClass(metric) {
-      if (!this.selectedFarmStats) return '';
-      
-      const statData = this.selectedFarmStats[metric];
-      if (!statData) return '';
-      
-      return statData.status === 'warning' ? 'warning' : 
-             statData.status === 'critical' ? 'critical' : 'normal';
-    },
-    
+
     calculateRiskLevel() {
-      // Si tenemos datos de la API con el porcentaje, usarlos directamente
       if (this.selectedFarmId) {
-        // Llamar al endpoint actualizado que retorna el riesgo como porcentaje
         DataService.getRiskData(this.selectedFarmId)
           .then(response => {
             if (response.data && response.data.analisisRiesgo) {
-              // Usar el porcentaje directamente si está disponible
               if (response.data.analisisRiesgo.porcentaje !== undefined) {
                 this.riskLevel = response.data.analisisRiesgo.porcentaje;
-              } 
-              // Retrocompatibilidad: si solo tenemos índice, convertir a porcentaje
-              else if (response.data.analisisRiesgo.indice !== undefined) {
+              } else if (response.data.analisisRiesgo.indice !== undefined) {
                 this.riskLevel = Math.min(100, Math.round(response.data.analisisRiesgo.indice * 10));
               }
-              
-              // Almacenar nivel de riesgo actual para historial
-              const now = new Date();
-              this.riskHistory.push({ 
-                date: now, 
-                value: this.riskLevel 
-              });
-              
-              // Limitar historial a últimos 30 días
-              const thirtyDaysAgo = new Date();
-              thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-              this.riskHistory = this.riskHistory.filter(entry => 
-                new Date(entry.date) >= thirtyDaysAgo
-              );
-              
-              // Actualizar gráfica
-              this.updateRiskChart();
             }
           })
           .catch(error => {
             console.error("Error al obtener datos de riesgo:", error);
-            // Usar valor por defecto de 30% si hay error
             this.riskLevel = 30;
-            this.updateRiskChart();
           });
       } else {
-        // Si no hay piscifactoría seleccionada, usar valor por defecto
         this.riskLevel = 30;
-        this.updateRiskChart();
       }
     },
 
-    updateRiskChart() {
-      if (this.riskChart) {
-        this.riskChart.destroy();
+    generateAvailableDates() {
+      // Generar fechas de los últimos 14 días
+      const dates = [];
+      for (let i = 0; i < 14; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        dates.push(date.toISOString().split('T')[0]);
+      }
+      this.availableDates = dates;
+      this.selectedHeatmapDate = dates[0]; // Fecha más reciente por defecto
+    },
+
+    formatDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    },
+
+    async toggleLayer(layerName) {
+      if (this.layers[layerName]) {
+        // Activar capa
+        await this.loadHeatmapData(layerName);
+      } else {
+        // Desactivar capa
+        if (this.heatmapLayers[layerName]) {
+          this.map.removeLayer(this.heatmapLayers[layerName]);
+          this.heatmapLayers[layerName] = null;
+        }
+      }
+    },
+
+    async loadHeatmapData(layerName) {
+      try {
+        let heatmapData;
+
+        if (layerName === 'waves') {
+          // Usar datos reales de oleaje
+          if (!this.waveData || !this.waveData.data) {
+            console.error('No hay datos de oleaje disponibles');
+            return;
+          }
+
+          // Convertir datos de oleaje a formato heatmap
+          heatmapData = this.waveData.data.map(point => {
+            // Normalizar valor entre 0 y 1 para el heatmap
+            // Altura máxima ~2.5m según estadísticas
+            const intensity = Math.min(1, point.value / 2.5);
+            return [point.lat, point.lon, intensity];
+          });
+
+          console.log(`Usando ${heatmapData.length} puntos reales de oleaje`);
+        } else if (layerName === 'currents') {
+          // Usar datos reales de corrientes
+          if (!this.realCurrentData || !this.realCurrentData.data) {
+            console.error('No hay datos de corrientes disponibles');
+            return;
+          }
+
+          // Convertir datos de corrientes a formato heatmap
+          heatmapData = this.realCurrentData.data.map(point => {
+            // Normalizar valor entre 0 y 1 para el heatmap
+            // Velocidad máxima ~0.5 m/s según estadísticas
+            const intensity = Math.min(1, point.value / 0.5);
+            return [point.lat, point.lon, intensity];
+          });
+
+          console.log(`Usando ${heatmapData.length} puntos reales de corrientes`);
+        } else if (layerName === 'temperature') {
+          // Usar datos reales de temperatura
+          if (!this.realTemperatureData || !this.realTemperatureData.data) {
+            console.error('No hay datos de temperatura disponibles');
+            return;
+          }
+
+          // Convertir datos de temperatura a formato heatmap
+          heatmapData = this.realTemperatureData.data.map(point => {
+            // Normalizar valor entre 0 y 1 para el heatmap
+            // Temperatura entre 22-26°C según estadísticas
+            const minTemp = 22;
+            const maxTemp = 26;
+            const intensity = Math.min(1, Math.max(0, (point.value - minTemp) / (maxTemp - minTemp)));
+            return [point.lat, point.lon, intensity];
+          });
+
+          console.log(`Usando ${heatmapData.length} puntos reales de temperatura`);
+        } else {
+          // Para otras capas que no tenemos datos reales, no mostrar nada
+          console.warn(`No hay datos reales para la capa ${layerName}`);
+          return;
+        }
+
+        // Remover capa anterior si existe
+        if (this.heatmapLayers[layerName]) {
+          this.map.removeLayer(this.heatmapLayers[layerName]);
+        }
+
+        // Crear nueva capa de calor
+        this.heatmapLayers[layerName] = L.heatLayer(heatmapData, {
+          radius: 25,
+          blur: 35,
+          maxZoom: 13,
+          max: 1.0,
+          gradient: this.getGradientForLayer(layerName)
+        }).addTo(this.map);
+
+        console.log(`Capa de calor ${layerName} cargada con ${heatmapData.length} puntos`);
+      } catch (error) {
+        console.error(`Error al cargar heatmap de ${layerName}:`, error);
+      }
+    },
+
+    generateHeatmapData(layerName) {
+      const data = [];
+      const bounds = {
+        latMin: 37.0,
+        latMax: 39.5,
+        lngMin: -1.8,
+        lngMax: 0.0
+      };
+
+      // Generar una cuadrícula de puntos con valores aleatorios
+      const step = 0.08;
+      for (let lat = bounds.latMin; lat <= bounds.latMax; lat += step) {
+        for (let lng = bounds.lngMin; lng <= bounds.lngMax; lng += step) {
+          let intensity = 0;
+
+          if (layerName === 'temperature') {
+            // Temperatura: más caliente al sur
+            intensity = 0.3 + (lat - bounds.latMin) / (bounds.latMax - bounds.latMin) * 0.5 + Math.random() * 0.2;
+          } else if (layerName === 'currents') {
+            // Corrientes: más fuertes cerca de la costa
+            const distToCoast = Math.abs(lng - bounds.lngMin);
+            intensity = Math.max(0, 1 - distToCoast * 3) + Math.random() * 0.3;
+          } else if (layerName === 'salinity') {
+            // Salinidad: patrón más uniforme
+            intensity = 0.5 + Math.random() * 0.3;
+          }
+
+          // Agregar variación cerca de las piscifactorías
+          this.piscifactorias.forEach(farm => {
+            const dist = Math.sqrt(
+              Math.pow(lat - farm.coordinates[0], 2) +
+              Math.pow(lng - farm.coordinates[1], 2)
+            );
+            if (dist < 0.3) {
+              intensity += (0.3 - dist) * 0.5;
+            }
+          });
+
+          intensity = Math.min(1, Math.max(0, intensity));
+          data.push([lat, lng, intensity]);
+        }
       }
 
-      if (!this.$refs.riskChart) return;
-      
-      const ctx = this.$refs.riskChart.getContext('2d');
+      return data;
+    },
 
-      const labels = this.riskHistory.map((entry) =>
-        new Date(entry.date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
-      );
-      const data = this.riskHistory.map((entry) => entry.value);
+    getGradientForLayer(layerName) {
+      const gradients = {
+        waves: {
+          0.0: '#10b981',  // Verde (< 1m - bajo)
+          0.4: '#fbbf24',  // Amarillo (1-2.2m - moderado)
+          0.6: '#f97316',  // Naranja (2.2-4m - alto)
+          0.8: '#ef4444',  // Rojo (4-6m - muy alto)
+          1.0: '#000000'   // Negro (> 6m - extremo)
+        },
+        temperature: {
+          0.0: '#3b82f6',  // Azul (frío)
+          0.3: '#06b6d4',  // Cyan
+          0.5: '#10b981',  // Verde
+          0.7: '#f59e0b',  // Amarillo/Naranja
+          1.0: '#ef4444'   // Rojo (caliente)
+        },
+        currents: {
+          0.0: '#dbeafe',  // Azul muy claro
+          0.3: '#93c5fd',  // Azul claro
+          0.5: '#3b82f6',  // Azul
+          0.7: '#1e40af',  // Azul oscuro
+          1.0: '#1e3a8a'   // Azul muy oscuro
+        },
+        salinity: {
+          0.0: '#d1fae5',  // Verde muy claro
+          0.3: '#6ee7b7',  // Verde claro
+          0.5: '#10b981',  // Verde
+          0.7: '#059669',  // Verde oscuro
+          1.0: '#047857'   // Verde muy oscuro
+        }
+      };
 
-      this.riskChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'Nivel de Riesgo (%)',
-              data,
-              borderColor: '#e74c3c',
-              backgroundColor: 'rgba(231, 76, 60, 0.2)',
-              tension: 0.4,
-              fill: true,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              display: false,
-            },
-            tooltip: {
-              callbacks: {
-                label: function (context) {
-                  return `Riesgo: ${context.parsed.y}%`;
-                },
-              },
-            },
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              grid: {
-                color: 'rgba(255, 255, 255, 0.1)',
-              },
-              ticks: {
-                color: '#ddd',
-                callback: function (value) {
-                  return value + '%';
-                },
-              },
-            },
-            x: {
-              grid: {
-                display: false,
-              },
-              ticks: {
-                color: '#ddd',
-                maxRotation: 45,
-                minRotation: 45,
-              },
-            },
-          },
-        },
-      });
+      return gradients[layerName];
+    },
+
+    async updateHeatmap() {
+      // Recargar todas las capas activas con la nueva fecha
+      for (const [layerName, isActive] of Object.entries(this.layers)) {
+        if (isActive) {
+          await this.loadHeatmapData(layerName);
+        }
+      }
     }
   }
 };
 </script>
 
 <style scoped>
-/* Estilos generales */
-.dashboard-container {
-  width: 100%;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background-color: #1a1f3d;
-  color: #e9ecef;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  overflow: hidden;
-  padding: 0;
+* {
   margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-/* Cabecera */
+.app-container {
+  min-height: 100vh;
+  max-height: 100vh;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
 .header {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1rem 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.header-content {
+  max-width: 1920px;
+  margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 20px;
-  background-color: #141832;
-  height: 60px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-  z-index: 10;
 }
 
 .header h1 {
-  margin: 0;
-  font-size: 1.4rem;
-  font-weight: bold;
-  color: #e9ecef;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.02em;
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.period-selector-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f9fafb;
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+}
+
+.period-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.period-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.period-btn {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.period-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+.period-btn.active {
+  background: #06b6d4;
+  border-color: #06b6d4;
+  color: white;
+}
+
+.period-btn.active:hover {
+  background: #0891b2;
+  border-color: #0891b2;
+}
+
+.select-minimal {
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background: white;
+  color: #374151;
+  font-size: 0.875rem;
+  min-width: 200px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.select-minimal:hover {
+  border-color: #9ca3af;
+}
+
+.select-minimal:focus {
+  outline: none;
+  border-color: #06b6d4;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1);
+}
+
+.btn-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background: white;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: #f9fafb;
+  color: #111827;
+}
+
+/* Main content */
+.main-content {
+  flex: 1;
+  max-width: 1920px;
+  margin: 0 auto;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+}
+
+.content-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Cards */
+.card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.card h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #111827;
+  padding: 1rem;
+  border-bottom: 1px solid #f3f4f6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.card-header h2 {
+  padding: 0;
+  border: none;
 }
 
 .header-controls {
   display: flex;
-  gap: 10px;
+  gap: 0.5rem;
   align-items: center;
 }
 
-.farm-selector {
-  background-color: #212850;
-  color: white;
-  border: 1px solid #4a6bff;
-  border-radius: 4px;
-  padding: 8px 12px;
-  min-width: 250px;
-  font-size: 0.9rem;
-}
-
-.refresh-btn {
-  background-color: #3a4ca1;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  width: 32px;
-  height: 32px;
+.header-info {
   display: flex;
-  justify-content: center;
   align-items: center;
-  cursor: pointer;
+  gap: 0.5rem;
 }
 
-.reload-icon {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>');
-  background-size: contain;
-  background-repeat: no-repeat;
+.data-source {
+  font-size: 0.75rem;
+  color: #10b981;
+  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  background: #d1fae5;
 }
 
-/* Selector de rango de fechas */
-.date-range-section {
-  padding: 10px 20px;
-  background-color: #1a1f3d;
+.data-source.simulated {
+  color: #f59e0b;
+  background: #fef3c7;
 }
 
-.date-picker {
-  width: 100%;
-  background-color: #212850;
-  border-radius: 6px;
-  color: white;
-}
-
-.date-picker :deep(.dp__theme_dark) {
-  --dp-background-color: #212850;
-  --dp-text-color: #e9ecef;
-  --dp-hover-color: #3a4ca1;
-  --dp-hover-text-color: #e9ecef;
-  --dp-hover-icon-color: #e9ecef;
-  --dp-primary-color: #4a6bff;
-  --dp-primary-text-color: #e9ecef;
-  --dp-secondary-color: #141832;
-  --dp-border-color: #3a4ca1;
-  --dp-menu-border-color: #3a4ca1;
-}
-
-/* Indicadores principales */
-.main-indicators {
-  padding: 15px 20px;
-  background-color: #1a1f3d;
-}
-
-.main-indicators h2 {
-  font-size: 1rem;
-  margin: 0 0 10px 0;
-  color: #a8dadc;
-}
-
-.indicators-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-}
-
-.indicator-card {
-  background-color: #212850;
-  border-radius: 6px;
-  padding: 15px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.indicator-card h3 {
-  font-size: 0.9rem;
-  margin: 0 0 10px 0;
-  color: #a8dadc;
-  font-weight: normal;
-}
-
-.indicator-value {
-  font-size: 1.8rem;
-  font-weight: bold;
-  color: #e9ecef;
-}
-
-.indicator-value.normal {
-  color: #4a6bff;
-}
-
-.indicator-value.warning {
-  color: #f9c74f;
-}
-
-.indicator-value.critical {
-  color: #e63946;
-}
-
-.indicator-value.alert-highlight {
-  color: #e63946;
-}
-
-/* Contenido principal */
-.dashboard-main {
-  flex: 1;
-  display: flex;
-  padding: 0 20px 20px 20px;
-  gap: 15px;
-  overflow: hidden;
-}
-
-.left-panel, .right-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  overflow: auto;
-}
-
-.left-panel {
-  flex: 1;
-  min-width: 300px;
-}
-
-.right-panel {
-  flex: 1;
-  min-width: 300px;
-}
-
-/* Paneles */
-.panel {
-  background-color: #212850;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.panel h2 {
-  padding: 12px 15px;
-  margin: 0;
-  font-size: 1rem;
-  background-color: #141832;
-  border-bottom: 1px solid #4a6bff;
-  color: #e9ecef;
-  font-weight: normal;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 15px;
-  background-color: #141832;
-  border-bottom: 1px solid #4a6bff;
-}
-
-.panel-header h2 {
-  padding: 0;
-  border: none;
-  background: none;
-}
-
-.period-select {
-  background-color: #212850;
-  color: white;
-  border: 1px solid #4a6bff;
-  border-radius: 4px;
-  padding: 4px 8px;
+.select-small {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  color: #374151;
   font-size: 0.8rem;
+  cursor: pointer;
+  min-width: 140px;
+  transition: all 0.2s;
 }
 
-/* Panel de Alertas */
-.alerts-panel {
-  flex: 1;
+.select-small:hover {
+  border-color: #9ca3af;
 }
 
-.alerts-content {
-  flex: 1;
-  padding: 15px;
-  overflow-y: auto;
+.select-small:focus {
+  outline: none;
+  border-color: #06b6d4;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1);
 }
 
-.alerts-list {
+/* Alerts */
+.alerts {
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.75rem;
 }
 
-.alert-item {
-  background-color: #141832;
-  border-radius: 6px;
-  padding: 10px;
-  border-left: 4px solid;
+.alert {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border-left: 3px solid;
+  background: #f9fafb;
 }
 
-.alert-item.alert-crítico {
-  border-color: #e63946;
+.alert-crítico {
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
-.alert-item.alert-advertencia {
-  border-color: #f9c74f;
+.alert-advertencia {
+  border-color: #f59e0b;
+  background: #fffbeb;
 }
 
-.alert-item.alert-informativo {
-  border-color: #4a6bff;
+.alert-informativo {
+  border-color: #06b6d4;
+  background: #f0f9ff;
 }
 
-.alert-title {
-  font-weight: bold;
-  margin-bottom: 5px;
-  color: #e9ecef;
+.alert strong {
+  display: block;
+  font-size: 0.875rem;
+  color: #111827;
+  margin-bottom: 0.25rem;
 }
 
-.alert-message {
-  font-size: 0.85rem;
-  color: #a8dadc;
+.alert p {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 0;
 }
 
-.no-data-message {
-  padding: 30px 0;
+.empty-state {
+  padding: 2rem 1rem;
   text-align: center;
-  color: #a8dadc;
-  font-style: italic;
+  color: #9ca3af;
+  font-size: 0.875rem;
 }
 
-/* Panel de Mapa */
-.map-panel {
-  flex: 2;
+/* Risk display */
+.risk-display {
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.risk-value {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.risk-bar {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.risk-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.risk-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* Row top: Mapa + Temperatura lado a lado */
+.row-top {
+  display: grid;
+  grid-template-columns: 500px 1fr;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Map */
+.map-card {
+  height: 400px;
 }
 
 .map-container {
-  flex: 1;
   position: relative;
-  min-height: 200px;
+  height: calc(100% - 2.75rem);
 }
 
 #map {
   width: 100%;
   height: 100%;
+  border-radius: 0 0 0.5rem 0.5rem;
 }
 
 .map-controls {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 0.5rem;
+  right: 0.5rem;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 0.25rem;
   z-index: 1000;
 }
 
 .map-btn {
-  width: 30px;
-  height: 30px;
-  background-color: white;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 18px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-/* Timeline control */
-.timeline-control {
-  position: absolute;
-  bottom: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 90%;
-  max-width: 500px;
-  background-color: rgba(20, 24, 50, 0.9);
-  padding: 10px 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-}
-
-.timeline-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.timeline-header h3 {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #e9ecef;
-  font-weight: normal;
-}
-
-.timeline-buttons {
-  display: flex;
-  gap: 5px;
-}
-
-.timeline-btn {
-  background-color: #4a6bff;
-  color: white;
+  width: 2rem;
+  height: 2rem;
+  background: white;
   border: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 4px;
+  border-radius: 0.375rem;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #374151;
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
   cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
 }
 
-.timeline-slider-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.map-btn:hover {
+  background: #f3f4f6;
+  transform: scale(1.05);
 }
 
-.timeline-slider {
-  width: 100%;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #141832;
-  outline: none;
-  border-radius: 3px;
-  margin-bottom: 8px;
+.map-btn-reset {
+  padding: 0.4rem;
 }
 
-.timeline-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #4a6bff;
-  cursor: pointer;
-  border: 2px solid white;
-}
-
-.timeline-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #4a6bff;
-  cursor: pointer;
-  border: 2px solid white;
-}
-
-.timeline-date {
-  font-size: 0.8rem;
-  color: #e9ecef;
-  text-align: center;
-}
-
-.play-icon {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>');
-  background-size: contain;
-  background-repeat: no-repeat;
-}
-
-.pause-icon {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>');
-  background-size: contain;
-  background-repeat: no-repeat;
-}
-
-.reset-icon {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>');
-  background-size: contain;
-  background-repeat: no-repeat;
-}
-
-/* Panel de Riesgo */
-.risk-panel {
-  flex: 1;
-}
-
-.risk-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 20px;
-}
-
-.risk-value {
-  font-size: 2.5rem;
-  font-weight: bold;
-  margin-bottom: 15px;
-}
-
-.risk-bar-container {
-  width: 100%;
-  margin-bottom: 15px;
-}
-
-.risk-bar {
-  width: 100%;
-  height: 16px;
-  background-color: #141832;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.risk-fill {
-  height: 100%;
-  border-radius: 8px;
-  transition: width 0.3s ease;
-}
-
-.risk-label {
-  font-size: 1.2rem;
-  color: #a8dadc;
-}
-
-.risk-updated {
-  font-size: 0.9rem;
-  color: #a8dadc;
-  margin-top: 10px;
-  font-style: italic;
-}
-
-/* Panel de Probabilidad de Escape */
-.escape-probability-panel {
-  flex: 1;
-  background-color: #212850;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 20px;
-}
-
-.escape-probability-content {
-  text-align: center;
-}
-
-.probability-value {
-  font-size: 2.5rem;
-  font-weight: bold;
-  margin-bottom: 10px;
-}
-
-.probability-description {
-  font-size: 1rem;
-  color: #a8dadc;
-}
-
-/* Panel de Gráficos */
-.chart-panel {
-  flex: 1;
-  min-height: 250px;
-}
-
-.chart-container {
-  flex: 1;
-  padding: 15px;
-  position: relative;
-  min-height: 200px;
-}
-
-.no-data-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: rgba(20, 24, 50, 0.7);
-  font-style: italic;
-  color: #a8dadc;
-}
-
-/* Loader */
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(20, 24, 50, 0.8);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 2000;
-}
-
-.loader {
-  border: 5px solid #212850;
-  border-top: 5px solid #4a6bff;
-  border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* Tooltip */
-.farm-tooltip {
-  font-size: 12px;
-  padding: 4px 8px;
-  background-color: rgba(74, 107, 255, 0.9);
-  border: 1px solid #4a6bff;
-  color: white;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-/* Responsive */
-@media (max-width: 1024px) {
-  .indicators-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .dashboard-main {
-    flex-direction: column;
-  }
-  
-  .left-panel, .right-panel {
-    width: 100%;
-  }
-  
-  .map-panel {
-    min-height: 300px;
-  }
-}
-
-@media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    height: auto;
-    padding: 10px;
-    gap: 10px;
-  }
-  
-  .header-controls {
-    width: 100%;
-  }
-  
-  .indicators-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .panel {
-    min-height: 200px;
-  }
-}
-
-/* Estilos para el control de capas */
-.map-layers-control {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  width: 150px;
-  color: #333;
-}
-
-.layers-title {
-  font-weight: bold;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #333;
-  text-align: center;
-  border-bottom: 1px solid #ccc;
-  padding-bottom: 5px;
-}
-
-.layer-option {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-
-.layer-option input {
-  margin-right: 8px;
-}
-
-/* Estilo para las flechas de corriente */
-.current-arrow-icon {
-  background: none;
-  border: none;
-}
-
-/* Estilos para leyendas de capas */
-.map-legend {
-  position: absolute;
-  bottom: 20px;
-  right: 10px;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  width: 200px;
-  display: none; /* Se mostrará cuando se active una capa */
-}
-
-.map-legend.active {
+.map-btn-reset svg {
   display: block;
 }
 
+.heatmap-legend {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: white;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 150px;
+}
+
 .legend-title {
-  font-weight: bold;
-  font-size: 12px;
-  margin-bottom: 5px;
-  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.legend-scale {
-  display: flex;
-  height: 20px;
-  margin-bottom: 5px;
-}
-
-.legend-scale-item {
-  flex: 1;
-  height: 100%;
+.legend-gradient {
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .legend-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 0.7rem;
+  color: #6b7280;
 }
 
-/* Escalas de colores específicas */
-.temperature-scale .legend-scale-item:nth-child(1) { background-color: blue; }
-.temperature-scale .legend-scale-item:nth-child(2) { background-color: cyan; }
-.temperature-scale .legend-scale-item:nth-child(3) { background-color: lime; }
-.temperature-scale .legend-scale-item:nth-child(4) { background-color: yellow; }
-.temperature-scale .legend-scale-item:nth-child(5) { background-color: orange; }
-.temperature-scale .legend-scale-item:nth-child(6) { background-color: red; }
+.map-layers {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  background: white;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+}
 
-.risk-scale .legend-scale-item:nth-child(1) { background-color: green; }
-.risk-scale .legend-scale-item:nth-child(2) { background-color: yellow; }
-.risk-scale .legend-scale-item:nth-child(3) { background-color: orange; }
-.risk-scale .legend-scale-item:nth-child(4) { background-color: red; }
+.layer-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
 
-/* Estilo para flechas de referencia en la leyenda */
-.current-arrow-legend {
+.layer-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.layer-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #374151;
+  user-select: none;
+}
+
+.layer-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #06b6d4;
+}
+
+.layer-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.layer-label:hover {
+  color: #111827;
+}
+
+.chart-card {
+  height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-card-wide {
+  height: 350px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-wrapper {
+  flex: 1;
+  padding: 1rem;
+  position: relative;
+  min-height: 0;
+}
+
+.empty-chart {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 5px;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  background: rgba(249, 250, 251, 0.5);
 }
 
-.arrow-reference {
-  width: 30px;
-  height: 20px;
-  margin-right: 10px;
+/* Loading */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
 }
 
-.arrow-label {
-  font-size: 10px;
+.spinner {
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid #e5e7eb;
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .row-top {
+    grid-template-columns: 1fr;
+  }
+
+  .map-card {
+    height: 300px;
+  }
+
+  .chart-card {
+    height: 300px;
+  }
+
+  .chart-card-wide {
+    height: 260px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .main-content {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    order: 2;
+  }
+
+  .content-area {
+    order: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding: 1rem;
+  }
+
+  .header-content {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .select-minimal {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
+}
+
+/* Estilos para marcadores personalizados */
+:deep(.custom-marker) {
+  background: transparent;
+  border: none;
+}
+
+:deep(.marker-container) {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.marker-dot) {
+  width: 12px;
+  height: 12px;
+  background: #06b6d4;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+:deep(.marker-container):hover .marker-dot {
+  transform: scale(1.3);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+:deep(.marker-container.marker-selected .marker-dot) {
+  background: #ef4444;
+  width: 16px;
+  height: 16px;
+  border-width: 3px;
+  animation: pulseRing 2s ease-in-out infinite;
+}
+
+@keyframes pulseRing {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7), 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0), 0 3px 10px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Custom tooltip styles */
+:deep(.custom-tooltip) {
+  background: rgba(0, 0, 0, 0.85);
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+:deep(.custom-tooltip::before) {
+  border-top-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Footer styles */
+.footer {
+  background: white;
+  border-top: 1px solid #e5e7eb;
+  padding: 1rem 2rem;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.footer-content {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.footer-logos {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.footer-logo {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.footer-logo:hover {
+  opacity: 1;
+}
+
+/* Ajustar main-content para que no se solape con el footer */
+.main-content {
+  padding-bottom: 80px; /* Espacio para el footer */
+}
+
+@media (max-width: 768px) {
+  .footer {
+    padding: 0.75rem 1rem;
+  }
+
+  .footer-logos {
+    gap: 1rem;
+  }
+
+  .footer-logo {
+    height: 30px;
+  }
 }
 </style>

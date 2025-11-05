@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0', // Escuchar en todas las interfaces de red
     proxy: {
       // Proxy para las peticiones al backend
       '/api': {
@@ -20,7 +21,7 @@ export default defineConfig({
       }
     },
     port: 8080, // Puerto diferente al backend
-    open: true, // Abrir navegador automáticamente
+    open: false, // No abrir navegador automáticamente en WSL
   },
   build: {
     outDir: 'dist', // Carpeta de salida para la compilación

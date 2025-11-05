@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// URL de la API
-const API_URL = 'http://localhost:3000/api';
+// URL de la API - usar /api para que pase por el proxy de Vite
+const API_URL = '/api';
 
 /**
  * Servicio para gestionar datos de piscifactorías y variables ambientales
@@ -437,6 +437,81 @@ export default {
    */
   getCurrentRisk() {
     return axios.get(`${API_URL}/riesgo/actual`);
+  },
+
+  /**
+   * Obtener datos de oleaje desde archivo JSON
+   * @returns {Promise} - Promesa con los datos de oleaje, estadísticas y metadatos
+   */
+  async getWaveData() {
+    try {
+      const response = await axios.get(`${API_URL}/oleaje/datos`);
+
+      return {
+        data: response.data.data,
+        statistics: response.data.statistics,
+        metadata: response.data.metadata,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener datos de oleaje:', error);
+      return {
+        data: [],
+        statistics: {},
+        metadata: {},
+        status: error.response?.status || 500
+      };
+    }
+  },
+
+  /**
+   * Obtener datos de corrientes desde archivo JSON
+   * @returns {Promise} - Promesa con los datos de corrientes, estadísticas y metadatos
+   */
+  async getCurrentData() {
+    try {
+      const response = await axios.get(`${API_URL}/corrientes/datos`);
+
+      return {
+        data: response.data.data,
+        statistics: response.data.statistics,
+        metadata: response.data.metadata,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener datos de corrientes:', error);
+      return {
+        data: [],
+        statistics: {},
+        metadata: {},
+        status: error.response?.status || 500
+      };
+    }
+  },
+
+  /**
+   * Obtener datos de temperatura desde archivo JSON
+   * @returns {Promise} - Promesa con los datos de temperatura, estadísticas y metadatos
+   */
+  async getTemperatureData() {
+    try {
+      const response = await axios.get(`${API_URL}/temperatura/datos`);
+
+      return {
+        data: response.data.data,
+        statistics: response.data.statistics,
+        metadata: response.data.metadata,
+        status: response.status
+      };
+    } catch (error) {
+      console.error('Error al obtener datos de temperatura:', error);
+      return {
+        data: [],
+        statistics: {},
+        metadata: {},
+        status: error.response?.status || 500
+      };
+    }
   }
 };
 

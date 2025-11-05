@@ -11,20 +11,32 @@
     </div>
     <div class="statistics-content">
       <div class="stats-grid">
-        <div class="stat-card">
-          <h3>Promedio</h3>
+        <div class="stat-card" :title="getTooltip('promedio')">
+          <div class="stat-header">
+            <h3>Promedio</h3>
+            <span class="info-icon">ℹ️</span>
+          </div>
           <div class="stat-value">{{ statistics.promedio || 'N/A' }}{{ getUnit() }}</div>
         </div>
-        <div class="stat-card">
-          <h3>Mínimo</h3>
+        <div class="stat-card" :title="getTooltip('minimo')">
+          <div class="stat-header">
+            <h3>Mínimo</h3>
+            <span class="info-icon">ℹ️</span>
+          </div>
           <div class="stat-value">{{ statistics.minimo || 'N/A' }}{{ getUnit() }}</div>
         </div>
-        <div class="stat-card">
-          <h3>Máximo</h3>
+        <div class="stat-card" :title="getTooltip('maximo')">
+          <div class="stat-header">
+            <h3>Máximo</h3>
+            <span class="info-icon">ℹ️</span>
+          </div>
           <div class="stat-value">{{ statistics.maximo || 'N/A' }}{{ getUnit() }}</div>
         </div>
-        <div class="stat-card">
-          <h3>Desviación</h3>
+        <div class="stat-card" :title="getTooltip('desviacion')">
+          <div class="stat-header">
+            <h3>Desviación</h3>
+            <span class="info-icon">ℹ️</span>
+          </div>
           <div class="stat-value">{{ statistics.desviacion || 'N/A' }}{{ getUnit() }}</div>
         </div>
       </div>
@@ -49,12 +61,13 @@ export default {
       type: [String, Number],
       default: null
     },
-    dateRange: {
-      type: Object,
-      default: () => ({
-        start: new Date(new Date().setDate(new Date().getDate() - 30)),
-        end: new Date()
-      })
+    startDate: {
+      type: String,
+      default: () => new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]
+    },
+    endDate: {
+      type: String,
+      default: () => new Date().toISOString().split('T')[0]
     }
   },
   data() {
@@ -77,11 +90,11 @@ export default {
       },
       immediate: true
     },
-    dateRange: {
-      handler() {
-        this.loadStats();
-      },
-      deep: true
+    startDate() {
+      this.loadStats();
+    },
+    endDate() {
+      this.loadStats();
     }
   },
   beforeUnmount() {
@@ -97,9 +110,9 @@ export default {
       }
       
       try {
-        const fechaInicio = this.dateRange.start.toISOString().split('T')[0];
-        const fechaFin = this.dateRange.end.toISOString().split('T')[0];
-        
+        const fechaInicio = this.startDate;
+        const fechaFin = this.endDate;
+
         const response = await DataService.getDatosHistoricos(this.selectedVariable, {
           fechaInicio,
           fechaFin,
@@ -215,9 +228,23 @@ export default {
               display: false
             },
             tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              titleColor: '#ffffff',
+              bodyColor: '#ffffff',
+              borderColor: '#3498db',
+              borderWidth: 1,
+              padding: 12,
+              displayColors: true,
               callbacks: {
+                title: (tooltipItems) => {
+                  return `Fecha: ${tooltipItems[0].label}`;
+                },
                 label: (context) => {
                   return `${this.getVariableLabel()}: ${context.parsed.y.toFixed(2)}${this.getUnit()}`;
+                },
+                afterLabel: (context) => {
+                  const dataSource = this.getDataSource();
+                  return `\nFuente: ${dataSource}`;
                 }
               }
             }
@@ -263,10 +290,54 @@ export default {
     getUnit() {
       switch (this.selectedVariable) {
         case 'temperatura': return ' °C';
-        case 'uo': 
+        case 'uo':
         case 'vo': return ' m/s';
         // case 'so': return ' ppt';
         default: return '';
+      }
+    },
+
+    getTooltip(stat) {
+      const varLabel = this.getVariableLabel();
+      const dataSource = this.getDataSource();
+
+      const tooltips = {
+        promedio: `Promedio: Suma de todos los valores dividido por el número total de mediciones.
+Fórmula: μ = (Σx) / n
+Fuente de datos: ${dataSource}
+Período: ${this.startDate} a ${this.endDate}`,
+
+        minimo: `Valor mínimo: El valor más bajo registrado en el período seleccionado.
+Variable: ${varLabel}
+Fuente de datos: ${dataSource}
+Período: ${this.startDate} a ${this.endDate}`,
+
+        maximo: `Valor máximo: El valor más alto registrado en el período seleccionado.
+Variable: ${varLabel}
+Fuente de datos: ${dataSource}
+Período: ${this.startDate} a ${this.endDate}`,
+
+        desviacion: `Desviación estándar: Mide la dispersión de los datos respecto al promedio.
+Fórmula: σ = √(Σ(x - μ)² / n)
+Una desviación baja indica datos cercanos al promedio.
+Fuente de datos: ${dataSource}
+Período: ${this.startDate} a ${this.endDate}`
+      };
+
+      return tooltips[stat] || '';
+    },
+
+    getDataSource() {
+      switch (this.selectedVariable) {
+        case 'temperatura':
+          return 'Copernicus Marine - CMCC MFSeas9 (Temp. Superficial)';
+        case 'uo':
+        case 'vo':
+          return 'Copernicus Marine - Análisis de corrientes marinas';
+        case 'oleaje_altura':
+          return 'Copernicus Marine - MEDSEA_ANALYSISFORECAST_PHY_006_013 (HCMR WAVE)';
+        default:
+          return 'Copernicus Marine Service';
       }
     }
   }
@@ -296,8 +367,32 @@ export default {
 .stat-card {
   background-color: #141832;
   border-radius: 6px;
+  cursor: help;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   padding: 10px;
   text-align: center;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.info-icon {
+  font-size: 0.875rem;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.stat-card:hover .info-icon {
+  opacity: 1;
 }
 
 .stat-card h3 {
